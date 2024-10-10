@@ -72,10 +72,7 @@ collapsed_df = process_lineages(preprocessed_df,
 
 The `plot_diagnostics` function generates a set of diagnostic plots to help assess the results of lineage collapsing:
 
-- Cluster size distribution
-- CDR3 length vs. cluster size
-- CDR3 frequency distribution
-- Top 10 V genes by count
+![Diagnostics](https://github.com/user-attachments/assets/f1f4aac6-6ad4-454a-bc7a-d7a80620dc30)
 
 ## License
 
