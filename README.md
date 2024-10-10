@@ -80,7 +80,7 @@ The `plot_diagnostics` function generates a set of diagnostic plots to help asse
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
