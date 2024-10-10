@@ -1,5 +1,6 @@
 # LineageCollapse.jl
-![LineageCollapse.jl Logo](https://github.com/user-attachments/assets/bdbab072-fa5c-40dc-b288-e3e2504e479f)
+![LineageCollapse.jl Logo](https://github.com/user-attachments/assets/80776deb-d571-457e-8596-dfd0e2f834b2)
+
 [![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mashu.github.io/LineageCollapse.jl/dev/)
 [![Build Status](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/mashu/LineageCollapse.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/LineageCollapse.jl)
@@ -82,4 +83,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - This package was inspired by the need for standardized lineage collapsing in immune repertoire analysis.
-- We thank the AIRR Community for their efforts in standardizing immune repertoire data formats and analysis methods.
+- We thank the AIRR Community for their efforts in standardizing immune repertoire data formats.
