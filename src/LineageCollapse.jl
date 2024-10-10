@@ -4,7 +4,7 @@ module LineageCollapse
     using ProgressMeter
     using Clustering
     using BioSequences
-    using Plots
+    using CairoMakie
 
     export load_data, preprocess_data, process_lineages, plot_diagnostics
 
