@@ -1,4 +1,4 @@
-module LinageCollapse
+module LineageCollapse
     using CSV
     using DataFrames
     using ProgressMeter

@@ -1,14 +1,14 @@
-using LinageCollapse
+using LineageCollapse
 using Documenter
 
-DocMeta.setdocmeta!(LinageCollapse, :DocTestSetup, :(using LinageCollapse); recursive=true)
+DocMeta.setdocmeta!(LineageCollapse, :DocTestSetup, :(using LineageCollapse); recursive=true)
 
 makedocs(;
-    modules=[LinageCollapse],
+    modules=[LineageCollapse],
     authors="Mateusz Kaduk <mateusz.kaduk@gmail.com> and contributors",
-    sitename="LinageCollapse.jl",
+    sitename="LineageCollapse.jl",
     format=Documenter.HTML(;
-        canonical="https://mashu.github.io/LinageCollapse.jl",
+        canonical="https://mashu.github.io/LineageCollapse.jl",
         edit_link="main",
         assets=String[],
     ),
@@ -18,6 +18,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/mashu/LinageCollapse.jl",
+    repo="github.com/mashu/LineageCollapse.jl",
     devbranch="main",
 )

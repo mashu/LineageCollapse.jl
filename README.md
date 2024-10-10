@@ -1,8 +1,8 @@
 # LineageCollapse.jl
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://mashu.github.io/LinageCollapse.jl/stable/)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mashu.github.io/LinageCollapse.jl/dev/)
-[![Build Status](https://github.com/mashu/LinageCollapse.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mashu/LinageCollapse.jl/actions/workflows/CI.yml?query=branch%3Amain)
-[![Coverage](https://codecov.io/gh/mashu/LinageCollapse.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/LinageCollapse.jl)
+[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://mashu.github.io/LineageCollapse.jl/stable/)
+[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://mashu.github.io/LineageCollapse.jl/dev/)
+[![Build Status](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Coverage](https://codecov.io/gh/mashu/LineageCollapse.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/LineageCollapse.jl)
 
 LineageCollapse.jl is a high-performance Julia package for performing standardized soft lineage collapsing on immune repertoire sequencing data. This package provides a robust and efficient implementation of lineage collapsing, a common task in many types of immunological analyses, including antibody repertoire analysis, T cell receptor studies, and immune repertoire diversity assessment.
 

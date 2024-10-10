@@ -1,6 +1,6 @@
-using LinageCollapse
+using LineageCollapse
 using Test
 
-@testset "LinageCollapse.jl" begin
+@testset "LineageCollapse.jl" begin
     @test 1 == 1
 end

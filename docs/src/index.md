@@ -1,14 +1,14 @@
 ```@meta
-CurrentModule = LinageCollapse
+CurrentModule = LineageCollapse
 ```
 
-# LinageCollapse
+# LineageCollapse
 
-Documentation for [LinageCollapse](https://github.com/mashu/LinageCollapse.jl).
+Documentation for [LineageCollapse](https://github.com/mashu/LineageCollapse.jl).
 
 ```@index
 ```
 
 ```@autodocs
-Modules = [LinageCollapse]
+Modules = [LineageCollapse]
 ```

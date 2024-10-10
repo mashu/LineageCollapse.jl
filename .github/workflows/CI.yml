@@ -72,6 +72,6 @@ jobs:
         shell: julia --project=docs --color=yes {0}
         run: |
           using Documenter: DocMeta, doctest
-          using LinageCollapse
-          DocMeta.setdocmeta!(LinageCollapse, :DocTestSetup, :(using LinageCollapse); recursive=true)
-          doctest(LinageCollapse)
+          using LineageCollapse
+          DocMeta.setdocmeta!(LineageCollapse, :DocTestSetup, :(using LineageCollapse); recursive=true)
+          doctest(LineageCollapse)

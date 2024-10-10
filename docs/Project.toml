@@ -1,3 +1,3 @@
 [deps]
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-LinageCollapse = "e38bdfdf-80f5-4f0c-93e0-53dd02ee37b8"
+LineageCollapse = "e38bdfdf-80f5-4f0c-93e0-53dd02ee37b8"
