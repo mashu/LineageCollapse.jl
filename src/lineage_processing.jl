@@ -59,7 +59,7 @@ function process_lineages(df::DataFrame;
         if nrow(group) > 1
             dist = pairwise_hamming(LongDNA{4}.(group.cdr3))
             hclusters = hclust(dist, linkage=:average)
-            maximum_height = maximum(hclusters.height)
+            maximum_height = maximum(hclusters.heights)
             cutoff = maximum_height * cutoff_ratio
             group[!, :cluster] = cutree(hclusters, h=cutoff)
         else
