@@ -5,12 +5,12 @@
 [![Build Status](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/mashu/LineageCollapse.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/mashu/LineageCollapse.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/mashu/LineageCollapse.jl)
 
-LineageCollapse.jl is a high-performance Julia package for performing standardized soft lineage collapsing on immune repertoire sequencing data. This package provides a robust and efficient implementation of lineage collapsing, a common task in many types of immunological analyses, including antibody repertoire analysis, T cell receptor studies, and immune repertoire diversity assessment.
+LineageCollapse.jl is a high-performance Julia package for performing soft lineage collapsing on immune repertoire sequencing data. This package provides a robust and efficient implementation of lineage collapsing, a common task in many types of immunological analyses, including antibody repertoire analysis, T cell receptor studies, and immune repertoire diversity assessment.
 
 ## Features
 
 - Fast and memory-efficient processing of large-scale immune repertoire data
-- Implements a standardized soft lineage collapsing algorithm
+- Implements a "soft" lineage collapsing algorithm
 - Supports AIRR-compliant input data formats
 - Flexible parameter configuration for customized analysis
 - Built-in visualization tools for diagnostic plots
