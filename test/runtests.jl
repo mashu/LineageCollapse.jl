@@ -1,9 +1,9 @@
 using Test
 using DataFrames
 using BioSequences
+using CairoMakie
 using LineageCollapse
 using CSV
-using CairoMakie
 
 @testset "LineageCollapse.jl" begin
     @testset "Data Loading" begin
@@ -88,6 +88,7 @@ using CairoMakie
         end
     end
 
+    # Test visualization functionality only if CairoMakie is available
     @testset "Visualization" begin
         test_df = DataFrame(
             cluster_size = [1, 2, 3, 4, 5],
