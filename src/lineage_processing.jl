@@ -55,7 +55,9 @@ function process_lineages(df::DataFrame;
     grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
-    @showprogress "Processing lineages" for group in grouped
+    prog = Progress(length(grouped), desc="Processing lineages")
+    for group in grouped
+        next!(prog)
         if nrow(group) > 1
             dist = pairwise_hamming(LongDNA{4}.(group.cdr3))
             hclusters = hclust(dist, linkage=:average)
@@ -76,6 +78,6 @@ function process_lineages(df::DataFrame;
             push!(processed_groups, cgroup)
         end
     end
-
+    finish!(prog)
     return vcat(processed_groups...)
 end
