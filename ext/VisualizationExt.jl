@@ -2,7 +2,7 @@ module VisualizationExt
     using LineageCollapse
     using CairoMakie
     using DataFrames
-    export plot_diagnostics
+    import LineageCollapse: plot_diagnostics
 
     """
         plot_diagnostics(df::DataFrame)
