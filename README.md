@@ -12,8 +12,7 @@ LineageCollapse.jl is a high-performance Julia package for performing soft linea
 - Fast and memory-efficient processing of large-scale immune repertoire data
 - Implements a "soft" lineage collapsing algorithm
 - Supports AIRR-compliant input data formats
-- Flexible parameter configuration for customized analysis
-- Built-in visualization tools for diagnostic plots
+- Optional visualization with diagnostic plots
 - Multithreaded processing for improved performance on multi-core systems
 
 ## Installation
@@ -37,7 +36,8 @@ preprocessed_df = preprocess_data(df)
 collapsed_df = process_lineages(preprocessed_df)
 
 # Generate diagnostic plots
-plot_diagnostics(collapsed_df)
+# using CairoMakie
+# plot_diagnostics(collapsed_df)
 ```
 
 ## Input Requirements
