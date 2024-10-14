@@ -26,12 +26,26 @@ Here's a quick example of how to use LineageCollapse:
 ```julia
 using LineageCollapse
 
-# Load and preprocess data
+# Load data
 df = load_data("path/to/your/airr_data.tsv.gz")
-preprocessed_df = preprocess_data(df, min_d_region_length=0)
 
-# Perform lineage collapsing
-collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.5, collapse=true)
+# Preprocess data
+preprocessed_df = preprocess_data(df, min_d_region_length=3)
+
+# Perform lineage collapsing using default Hamming distance and Hierarchical clustering
+collapsed_df = process_lineages(preprocessed_df)
+
+# Use Levenshtein distance with Hierarchical clustering
+collapsed_df_lev = process_lineages(preprocessed_df, 
+                                    distance_metric=LevenshteinDistance(), 
+                                    clustering_method=HierarchicalClustering(0.1))
+
+# Adjust allele ratio and collapse results
+collapsed_df_custom = process_lineages(preprocessed_df, 
+                                       distance_metric=HammingDistance(),
+                                       clustering_method=HierarchicalClustering(0.1),
+                                       allele_ratio=0.3,
+                                       collapse=true)
 
 # Generate diagnostic plots (requires CairoMakie)
 # using CairoMakie

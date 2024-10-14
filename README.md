@@ -29,11 +29,17 @@ pkg> add LineageCollapse
 using LineageCollapse
 
 # Load and preprocess data
-df = load_data("path/to/your/airr_data.tsv.gz")
+df = load_data("path/to/your/data.tsv")
 preprocessed_df = preprocess_data(df)
 
-# Perform lineage collapsing
-collapsed_df = process_lineages(preprocessed_df)
+# Use default Hamming distance and Hierarchical clustering
+result1 = process_lineages(preprocessed_df)
+
+# Use Levenshtein distance with Hierarchical clustering
+result2 = process_lineages(preprocessed_df, distance_metric=LevenshteinDistance())
+
+# Use Hamming distance with Hierarchical clustering and custom cutoff ratio
+result3 = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
 ```
 
 ## Input Requirements

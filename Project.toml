@@ -10,6 +10,7 @@ CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 Clustering = "aaaa29a8-35af-508c-8bc3-b662a17a0fe5"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
+StringDistances = "88034a9c-02f8-509d-84a9-84ec65e18404"
 
 [weakdeps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
@@ -24,6 +25,7 @@ CairoMakie = "0.12.13"
 Clustering = "0.15.7"
 DataFrames = "1.7.0"
 ProgressMeter = "1.10.2"
+StringDistances = "0.11.3"
 julia = "1.10"
 
 [extras]
