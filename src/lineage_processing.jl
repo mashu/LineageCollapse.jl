@@ -51,9 +51,9 @@ Process lineages in the input DataFrame.
 - `DataFrame`: Processed DataFrame with lineage information.
 """
 function process_lineages(df::DataFrame; 
-                          cutoff_ratio::Float64=0.1, 
-                          allele_ratio::Float64=0.5,
-                          collapse=false)::DataFrame
+                        cutoff_ratio::Float64=0.1, 
+                        allele_ratio::Float64=0.5,
+                        collapse=false)::DataFrame
     grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
@@ -69,16 +69,17 @@ function process_lineages(df::DataFrame;
         else
             group[!, :cluster] .= 1
         end
+        
+        group[!, :group_id] .= group_id
 
         cluster_grouped = groupby(group, :cluster)
         for cgroup in cluster_grouped
             cgroup[!, :cluster_size] .= nrow(cgroup)
             if collapse
-                cgroup = combine(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
+                cgroup = combine(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
             else
-                cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
+                cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
             end
-            cgroup[!, :group_id] .= group_id
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
             transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
             filter!(row -> row.cdr3_frequency >= allele_ratio, cgroup)
@@ -86,5 +87,10 @@ function process_lineages(df::DataFrame;
         end
     end
     finish!(prog)
-    return vcat(processed_groups...)
+
+    # Assign unique lineage_id for each combination of group_id and cluster
+    result = vcat(processed_groups...)
+    result[!, :lineage_id] = groupindices(groupby(result, [:group_id, :cluster]))
+
+    return result
 end
