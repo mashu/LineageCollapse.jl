@@ -30,10 +30,10 @@ using LineageCollapse
 
 # Load and preprocess data
 df = load_data("path/to/your/airr_data.tsv.gz")
-preprocessed_df = preprocess_data(df)
+preprocessed_df = preprocess_data(df, min_d_region_length=0)
 
 # Perform lineage collapsing
-collapsed_df = process_lineages(preprocessed_df)
+collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.5, collapse=true)
 
 # Generate diagnostic plots
 # using CairoMakie

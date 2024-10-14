@@ -1,7 +1,7 @@
 name = "LineageCollapse"
 uuid = "e38bdfdf-80f5-4f0c-93e0-53dd02ee37b8"
 authors = ["Mateusz Kaduk <mateusz.kaduk@gmail.com> and contributors"]
-version = "0.0.3"
+version = "0.0.4"
 
 [deps]
 BioSequences = "7e6ae17a-c86d-528c-b3b9-7f778a29fe59"

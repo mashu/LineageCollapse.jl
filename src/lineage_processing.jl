@@ -45,18 +45,20 @@ Process lineages in the input DataFrame.
 - `df::DataFrame`: Input DataFrame.
 - `cutoff_ratio::Float64=0.1`: Ratio to determine the cutoff height for hierarchical clustering.
 - `allele_ratio::Float64=0.5`: Minimum ratio of CDR3 frequency to consider.
+- `collapse::Bool=false`: Whether to collapse the processed linages into a single DataFrame.
 
 # Returns
 - `DataFrame`: Processed DataFrame with lineage information.
 """
 function process_lineages(df::DataFrame; 
                           cutoff_ratio::Float64=0.1, 
-                          allele_ratio::Float64=0.5)::DataFrame
+                          allele_ratio::Float64=0.5,
+                          collapse=false)::DataFrame
     grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
     prog = Progress(length(grouped), desc="Processing lineages")
-    for group in grouped
+    for (group_id, group) in enumerate(grouped)
         next!(prog)
         if nrow(group) > 1
             dist = pairwise_hamming(LongDNA{4}.(group.cdr3))
@@ -71,10 +73,15 @@ function process_lineages(df::DataFrame;
         cluster_grouped = groupby(group, :cluster)
         for cgroup in cluster_grouped
             cgroup[!, :cluster_size] .= nrow(cgroup)
-            cgroup = combine(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
+            cgroup[!, :group_id] .= group_id
+            if collapse
+                cgroup = combine(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
+            else
+                cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
+            end
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
             transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
-            filter!(row -> row.cdr3_frequency > allele_ratio, cgroup)
+            filter!(row -> row.cdr3_frequency >= allele_ratio, cgroup)
             push!(processed_groups, cgroup)
         end
     end
