@@ -13,6 +13,6 @@ Load data from a file and return a DataFrame.
 """
 function load_data(filepath::String; 
                    delimiter::Char='\t', 
-                   required_columns=[:sequence, :v_sequence_end, :j_sequence_start, :cdr3, :v_call, :j_call, :stop_codon])::DataFrame
+                   required_columns=[:sequence_id, :sequence, :v_sequence_end, :j_sequence_start, :cdr3, :v_call, :j_call, :stop_codon])::DataFrame
     return CSV.File(filepath, delim=delimiter, select=required_columns) |> DataFrame
 end
