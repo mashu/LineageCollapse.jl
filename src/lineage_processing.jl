@@ -73,12 +73,12 @@ function process_lineages(df::DataFrame;
         cluster_grouped = groupby(group, :cluster)
         for cgroup in cluster_grouped
             cgroup[!, :cluster_size] .= nrow(cgroup)
-            cgroup[!, :group_id] .= group_id
             if collapse
                 cgroup = combine(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
             else
                 cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size]), nrow => :cdr3_count)
             end
+            cgroup[!, :group_id] .= group_id
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
             transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
             filter!(row -> row.cdr3_frequency >= allele_ratio, cgroup)
