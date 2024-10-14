@@ -30,20 +30,10 @@ using LineageCollapse
 
 # Load and preprocess data
 df = load_data("path/to/your/airr_data.tsv.gz")
-preprocessed_df = preprocess_data(df, min_d_region_length=0)
+preprocessed_df = preprocess_data(df)
 
 # Perform lineage collapsing
-collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.5, collapse=true)
-# If you want to retain all rows and get cluster assignments
-# collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.0, collapse=false)
-
-# If you choose collapse=false than combination of group_id (v_call_first, j_call_first, cdr3_length) and cluster columns identify your lineages
-# Example:
-# combine(groupby(collapsed_df, [:group_id, :cluster]), nrow => :lineage_count)
-
-# Generate diagnostic plots
-# using CairoMakie
-# plot_diagnostics(collapsed_df)
+collapsed_df = process_lineages(preprocessed_df)
 ```
 
 ## Input Requirements
@@ -65,16 +55,6 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 3. **Clustering**: Average linkage hierarchical clustering is performed on the distance matrix.
 4. **Cluster Formation**: The hierarchical tree is cut at 10% of its height from the tip to form clusters.
 5. **Allelic Ratio Filtering**: To preserve consistent variations in the D-region (between the end of V and start of J), an allelic ratio filter (default 50%) is applied to discard outliers.
-
-## Customization
-
-LineageCollapse.jl offers various parameters for customizing the analysis:
-
-```julia
-collapsed_df = process_lineages(preprocessed_df,
-                                cutoff_ratio=0.1,  # Tree cutting height ratio
-                                allele_ratio=0.5)  # Minimum allelic ratio
-```
 
 ## Visualization
 
