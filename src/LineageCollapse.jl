@@ -12,9 +12,12 @@ module LineageCollapse
     export compute_distance, compute_pairwise_distance, perform_clustering
 
     function plot_diagnostics(args...; opts...)
-        error(isdefined(Main, :CairoMakie) ? "Invalid method call" : "Import CairoMakie to enable plotting")
+        if !isdefined(@__MODULE__, :CairoMakie)
+            error("Import CairoMakie to enable plotting")
+        else
+            error("Invalid method call")
+        end
     end
-
     include("data_loading.jl")
     include("preprocessing.jl")
     include("lineage_processing.jl")
