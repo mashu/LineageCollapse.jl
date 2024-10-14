@@ -34,6 +34,12 @@ preprocessed_df = preprocess_data(df, min_d_region_length=0)
 
 # Perform lineage collapsing
 collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.5, collapse=true)
+# If you want to retain all rows and get cluster assignments
+# collapsed_df = process_lineages(preprocessed_df, cutoff_ratio=0.1, allele_ratio=0.0, collapse=false)
+
+# If you choose collapse=false than combination of group_id (v_call_first, j_call_first, cdr3_length) and cluster columns identify your lineages
+# Example:
+# combine(groupby(collapsed_df, [:group_id, :cluster]), nrow => :lineage_count)
 
 # Generate diagnostic plots
 # using CairoMakie
