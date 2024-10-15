@@ -8,7 +8,14 @@ struct HammingDistance <: DistanceMetric end
 struct NormalizedHammingDistance <: NormalizedDistanceMetric end
 struct LevenshteinDistance <: DistanceMetric end
 
-# Concrete type for hierarchical clustering
+"""
+    HierarchicalClustering(cutoff::Float64)
+
+A type representing hierarchical clustering with a cutoff.
+
+# Arguments
+- `cutoff::Float64`: The cutoff value for the clustering, below which clusters are merged. Higher values result in fewer clusters.
+"""
 struct HierarchicalClustering <: ClusteringMethod
     cutoff::Float64
 end
@@ -20,7 +27,6 @@ Compute the distance between two `LongDNA{4}` sequences using the specified dist
 """
 function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
     @assert length(x) == length(y)
-#    return sum(count_ones.(x.data .⊻ y.data)) / 2
     return evaluate(Hamming(), String(x), String(y))
 end
 
@@ -31,7 +37,6 @@ Compute the distance between two `LongDNA{4}` sequences using the specified dist
 """
 function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
     @assert length(x) == length(y)
-#    return sum(count_ones.(x.data .⊻ y.data)) / 2 / max(length(x), length(y))
     return evaluate(Hamming(), String(x), String(y)) / max(length(x), length(y))
 end
 
@@ -64,9 +69,9 @@ function compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDista
 end
 
 """
-    perform_clustering(method::HierarchicalClustering, dist_matrix::Matrix{Float64})::Vector{Int}
+    perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
 
-Perform hierarchical clustering on the input distance matrix using the specified method.
+Perform hierarchical clustering on the distance matrix using the specified method and linkage.
 """
 function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
     hclusters = hclust(dist_matrix, linkage=linkage)
@@ -75,20 +80,12 @@ end
 
 """
     process_lineages(df::DataFrame; 
-                     distance_metric::DistanceMetric = HammingDistance(),
-                     clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
-                     cdr3_ratio::Float64 = 0.5)::DataFrame
+                    distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
+                    clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
+                    cdr3_ratio::Float64 = 0.0,
+                    linkage::Symbol = :single)::DataFrame
 
-Process lineages in the input DataFrame using specified distance metric and clustering method.
-
-# Arguments
-- `df::DataFrame`: Input DataFrame.
-- `distance_metric::DistanceMetric`: Distance metric to use for sequence comparison.
-- `clustering_method::ClusteringMethod`: Clustering method to use.
-- `cdr3_ratio::Float64`: Minimum ratio of CDR3 frequency to consider.
-
-# Returns
-- `DataFrame`: Processed DataFrame with lineage information.
+Process lineages from a DataFrame of CDR3 sequences.
 """
 function process_lineages(df::DataFrame; 
                           distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),

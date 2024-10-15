@@ -58,8 +58,8 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 
 1. **Grouping**: Sequences are grouped by `v_call`, `j_call`, and `cdr3_length`.
 2. **Distance Calculation**: Pairwise Hamming distances are computed between CDR3 sequences within each group.
-3. **Clustering**: Average linkage hierarchical clustering is performed on the distance matrix.
-4. **Cluster Formation**: The hierarchical tree is cut at 10% of its height from the tip to form clusters.
+3. **Clustering**: Single linkage hierarchical clustering is performed on the distance matrix.
+4. **Cluster Formation**: Clusters are determine by a cutoff on distances below which clusters are merged, low value means more clusters, higher value fewer clusters.
 5. **Allelic Ratio Filtering**: To preserve consistent variations in the D-region (between the end of V and start of J), an allelic ratio filter (default 50%) is applied to discard outliers.
 
 ## Visualization
