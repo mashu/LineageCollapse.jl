@@ -8,7 +8,7 @@ module LineageCollapse
 
     export load_data, preprocess_data, process_lineages, plot_diagnostics
     export DistanceMetric, ClusteringMethod
-    export HammingDistance, LevenshteinDistance, HierarchicalClustering
+    export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
     export compute_distance, compute_pairwise_distance, perform_clustering
 
     function plot_diagnostics(args...; opts...)
