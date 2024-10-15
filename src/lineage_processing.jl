@@ -1,14 +1,16 @@
 # Abstract types for the abstraction
 abstract type DistanceMetric end
+abstract type NormalizedDistanceMetric end
 abstract type ClusteringMethod end
 
 # Concrete types for distance metrics
 struct HammingDistance <: DistanceMetric end
+struct NormalizedHammingDistance <: NormalizedDistanceMetric end
 struct LevenshteinDistance <: DistanceMetric end
 
 # Concrete type for hierarchical clustering
 struct HierarchicalClustering <: ClusteringMethod
-    cutoff_ratio::Float64
+    cutoff::Float64
 end
 
 """
@@ -18,7 +20,19 @@ Compute the distance between two `LongDNA{4}` sequences using the specified dist
 """
 function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
     @assert length(x) == length(y)
-    return sum(count_ones.(x.data .⊻ y.data)) / 2
+#    return sum(count_ones.(x.data .⊻ y.data)) / 2
+    return evaluate(Hamming(), String(x), String(y))
+end
+
+"""
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+
+Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
+"""
+function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+    @assert length(x) == length(y)
+#    return sum(count_ones.(x.data .⊻ y.data)) / 2 / max(length(x), length(y))
+    return evaluate(Hamming(), String(x), String(y)) / max(length(x), length(y))
 end
 
 """
@@ -31,11 +45,11 @@ function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::
 end
 
 """
-    compute_pairwise_distance(metric::DistanceMetric, sequences::Vector{LongDNA{4}})::Matrix{Float64}
+    compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float64}
 
 Compute pairwise distances between sequences using the specified distance metric.
 """
-function compute_pairwise_distance(metric::DistanceMetric, sequences::Vector{LongDNA{4}})::Matrix{Float64}
+function compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float64}
     n = length(sequences)
     dist_matrix = zeros(Float64, n, n)
 
@@ -46,7 +60,6 @@ function compute_pairwise_distance(metric::DistanceMetric, sequences::Vector{Lon
             dist_matrix[j, i] = dist
         end
     end
-
     return dist_matrix
 end
 
@@ -55,17 +68,16 @@ end
 
 Perform hierarchical clustering on the input distance matrix using the specified method.
 """
-function perform_clustering(method::HierarchicalClustering, dist_matrix::Matrix{Float64})::Vector{Int}
-    hclusters = hclust(dist_matrix, linkage=:average)
-    cutoff = maximum(hclusters.heights) * method.cutoff_ratio
-    return cutree(hclusters, h=cutoff)
+function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
+    hclusters = hclust(dist_matrix, linkage=linkage)
+    return cutree(hclusters, h=method.cutoff)
 end
 
 """
     process_lineages(df::DataFrame; 
                      distance_metric::DistanceMetric = HammingDistance(),
                      clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
-                     allele_ratio::Float64 = 0.5)::DataFrame
+                     cdr3_ratio::Float64 = 0.5)::DataFrame
 
 Process lineages in the input DataFrame using specified distance metric and clustering method.
 
@@ -73,15 +85,16 @@ Process lineages in the input DataFrame using specified distance metric and clus
 - `df::DataFrame`: Input DataFrame.
 - `distance_metric::DistanceMetric`: Distance metric to use for sequence comparison.
 - `clustering_method::ClusteringMethod`: Clustering method to use.
-- `allele_ratio::Float64`: Minimum ratio of CDR3 frequency to consider.
+- `cdr3_ratio::Float64`: Minimum ratio of CDR3 frequency to consider.
 
 # Returns
 - `DataFrame`: Processed DataFrame with lineage information.
 """
 function process_lineages(df::DataFrame; 
-                          distance_metric::DistanceMetric = HammingDistance(),
+                          distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
                           clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
-                          allele_ratio::Float64 = 0.0)::DataFrame
+                          cdr3_ratio::Float64 = 0.0,
+                          linkage::Symbol = :single)::DataFrame
     grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
@@ -91,7 +104,7 @@ function process_lineages(df::DataFrame;
         if nrow(group) > 1
             sequences = LongDNA{4}.(group.cdr3)
             dist_matrix = compute_pairwise_distance(distance_metric, sequences)
-            group[!, :cluster] = perform_clustering(clustering_method, dist_matrix)
+            group[!, :cluster] = perform_clustering(clustering_method, linkage, dist_matrix)
         else
             group[!, :cluster] .= 1
         end
@@ -104,7 +117,7 @@ function process_lineages(df::DataFrame;
             cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
             transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
-            filter!(row -> row.cdr3_frequency >= allele_ratio, cgroup)
+            filter!(row -> row.cdr3_frequency >= cdr3_ratio, cgroup)
             push!(processed_groups, cgroup)
         end
     end

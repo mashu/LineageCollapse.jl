@@ -42,9 +42,9 @@ collapsed_df_lev = process_lineages(preprocessed_df,
 
 # Adjust allele ratio and collapse results
 collapsed_df_custom = process_lineages(preprocessed_df, 
-                                       distance_metric=HammingDistance(),
+                                       distance_metric=NormalizedHammingDistance(),
                                        clustering_method=HierarchicalClustering(0.1),
-                                       allele_ratio=0.3,
+                                       cdr3_ratio=0.3,
                                        collapse=true)
 
 # Generate diagnostic plots (requires CairoMakie)
