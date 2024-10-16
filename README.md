@@ -32,14 +32,11 @@ using LineageCollapse
 df = load_data("path/to/your/data.tsv")
 preprocessed_df = preprocess_data(df)
 
-# Use default Hamming distance and Hierarchical clustering
-result1 = process_lineages(preprocessed_df)
+# Use default Normalized Hamming distance with Hierarchical clustering and CDR3 similarity cutoff of 0.2
+result = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
 
-# Use Levenshtein distance with Hierarchical clustering
-result2 = process_lineages(preprocessed_df, distance_metric=LevenshteinDistance())
-
-# Use Hamming distance with Hierarchical clustering and custom cutoff ratio
-result3 = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
+# Collapse
+collapsed = combine(groupby(result, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3]), :cdr3 => length => :count)
 ```
 
 ## Input Requirements

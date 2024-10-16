@@ -32,20 +32,21 @@ df = load_data("path/to/your/airr_data.tsv.gz")
 # Preprocess data
 preprocessed_df = preprocess_data(df, min_d_region_length=3)
 
-# Perform lineage collapsing using default Hamming distance and Hierarchical clustering
-collapsed_df = process_lineages(preprocessed_df)
+# Assign lineages using default length Normalized Hamming distance and Hierarchical clustering
+result1 = process_lineages(preprocessed_df)
 
-# Use Levenshtein distance with Hierarchical clustering
-collapsed_df_lev = process_lineages(preprocessed_df, 
-                                    distance_metric=LevenshteinDistance(), 
+# Assign lineages using length Normalized Hamming distance
+# with Hierarchical clustering but different CDR3 similarity cutoff
+result2 = process_lineages(preprocessed_df, 
+                                    distance_metric=NormalizedHammingDistance(), 
                                     clustering_method=HierarchicalClustering(0.1))
-
-# Adjust allele ratio and collapse results
-collapsed_df_custom = process_lineages(preprocessed_df, 
+# Assign lineages using length Normalized Hamming distance
+# with Hierarchical clustering but different CDR3 similarity cutoff
+# with CDR3 allelic ratio cut-off to filter out singletons
+result3 = process_lineages(preprocessed_df, 
                                        distance_metric=NormalizedHammingDistance(),
                                        clustering_method=HierarchicalClustering(0.1),
-                                       cdr3_ratio=0.3,
-                                       collapse=true)
+                                       cdr3_ratio=0.3)
 
 # Generate diagnostic plots (requires CairoMakie)
 # using CairoMakie
