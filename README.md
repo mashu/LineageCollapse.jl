@@ -46,6 +46,7 @@ result3 = process_lineages(preprocessed_df, clustering_method=HierarchicalCluste
 
 LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor Repertoire - Community) format, typically obtained from tools like IgBLAST. The following columns are required:
 
+- sequence_id
 - sequence
 - v_sequence_end
 - j_sequence_start
