@@ -82,7 +82,6 @@ end
     process_lineages(df::DataFrame; 
                     distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
                     clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
-                    cdr3_ratio::Float64 = 0.0,
                     linkage::Symbol = :single)::DataFrame
 
 Process lineages from a DataFrame of CDR3 sequences.
@@ -90,7 +89,6 @@ Process lineages from a DataFrame of CDR3 sequences.
 function process_lineages(df::DataFrame; 
                           distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
                           clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
-                          cdr3_ratio::Float64 = 0.0,
                           linkage::Symbol = :single)::DataFrame
     grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
@@ -114,7 +112,6 @@ function process_lineages(df::DataFrame;
             cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
             transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
-            filter!(row -> row.cdr3_frequency >= cdr3_ratio, cgroup)
             push!(processed_groups, cgroup)
         end
     end

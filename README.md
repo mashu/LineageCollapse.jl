@@ -35,7 +35,7 @@ preprocessed_df = preprocess_data(df)
 # Use default Normalized Hamming distance with Hierarchical clustering and CDR3 similarity cutoff of 0.2
 result = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
 
-# Collapse
+# Collapse identical CDR3s but only within each cluster
 collapsed = combine(groupby(result, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3]), :cdr3 => length => :count)
 ```
 
@@ -58,7 +58,6 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 2. **Distance Calculation**: Pairwise Hamming distances are computed between CDR3 sequences within each group.
 3. **Clustering**: Single linkage hierarchical clustering is performed on the distance matrix.
 4. **Cluster Formation**: Clusters are determine by a cutoff on distances below which clusters are merged, low value means more clusters, higher value fewer clusters.
-5. **Allelic Ratio Filtering**: To preserve consistent variations in the D-region (between the end of V and start of J), an allelic ratio filter (default 50%) is applied to discard outliers.
 
 ## Visualization
 
