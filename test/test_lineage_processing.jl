@@ -119,4 +119,75 @@ using LineageCollapse
         result = process_lineages(df, distance_metric=NormalizedHammingDistance(), clustering_method=HierarchicalClustering(0.2))
         @test rand_index(result.lineage_id, df.lineage_id_mismatches_20) == 1.0
     end
+
+    @testset "collapse_lineages function" begin
+        # Sample data for testing
+        test_df = DataFrame(
+            d_region = ["CGAT", "CGAT", "CGAT", "CGAT", "CGAT", "CGAT"],
+            lineage_id = [1, 1, 1, 2, 2, 2],
+            j_call_first = ["J1", "J1", "J1", "J2", "J2", "J2"],
+            v_call_first = ["V1", "V1", "V1", "V2", "V2", "V2"],
+            cdr3 = ["ATCG", "ATCG", "ATTG", "GCTA", "GCTA", "GCTT"],
+            count = [5, 3, 2, 4, 4, 2]
+        )
+
+        @testset "Hardest collapse strategy" begin
+            result = collapse_lineages(test_df, 0.0, :hardest)
+
+            @test nrow(result) == 2  # Should have one row per lineage
+            @test result[result.lineage_id .== 1, :cdr3][1] == "ATCG"  # Most frequent for lineage 1
+            @test result[result.lineage_id .== 2, :cdr3][1] == "GCTA"  # Most frequent for lineage 2
+        end
+
+        @testset "Soft collapse strategy" begin
+            result = collapse_lineages(test_df, 0.3, :soft)
+
+            @test nrow(result) == 4  # Should keep sequences above 30% frequency
+            @test "ATCG" in result.cdr3  # Should keep ATCG in lineage 1
+            @test "ATTG" in result.cdr3  # Should keep ATTG in lineage 1 (20%, but rounded to 30%)
+            @test "GCTA" in result.cdr3  # Should keep GCTA in lineage 2
+            @test "GCTT" in result.cdr3  # Should keep GCTT in lineage 2 (20%, but rounded to 30%)
+
+            # Check frequencies
+            @test result[result.cdr3 .== "ATCG", :frequency][1] ≈ 0.6666666666666666 atol=1e-6
+            @test result[result.cdr3 .== "ATTG", :frequency][1] ≈ 0.3333333333333333 atol=1e-6
+            @test result[result.cdr3 .== "GCTA", :frequency][1] ≈ 0.6666666666666666 atol=1e-6
+            @test result[result.cdr3 .== "GCTT", :frequency][1] ≈ 0.3333333333333333 atol=1e-6
+        end
+
+        @testset "Edge cases" begin
+            # Single sequence per lineage
+            single_seq_df = DataFrame(
+                d_region = ["CGAT", "CGAT"],
+                lineage_id = [1, 2],
+                j_call_first = ["J1", "J2"],
+                v_call_first = ["V1", "V2"],
+                cdr3 = ["ATCG", "GCTA"],
+                count = [1, 1]
+            )
+            result = collapse_lineages(single_seq_df, 0.0, :hardest)
+            @test nrow(result) == 2
+            @test Set(result.cdr3) == Set(["ATCG", "GCTA"])
+
+            # All sequences with equal frequency
+            equal_freq_df = DataFrame(
+                d_region = ["CGAT", "CGAT", "CGAT"],
+                lineage_id = [1, 1, 1],
+                j_call_first = ["J1", "J1", "J1"],
+                v_call_first = ["V1", "V1", "V1"],
+                cdr3 = ["ATCG", "ATTG", "ATAG"],
+                count = [1, 1, 1]
+            )
+            result = collapse_lineages(equal_freq_df, 0.0, :hardest)
+            @test nrow(result) == 1
+            @test result.cdr3[1] in ["ATCG", "ATTG", "ATAG"]
+        end
+
+        @testset "Invalid inputs" begin
+            @test_throws ArgumentError collapse_lineages(test_df, 0.1, :invalid_strategy)
+            @test_throws ArgumentError collapse_lineages(test_df, -0.1, :soft)
+            @test_throws ArgumentError collapse_lineages(test_df, -0.1, :hardest)
+            @test_throws ArgumentError collapse_lineages(test_df, 1.1, :hardest)
+        end
+    end
 end

@@ -94,7 +94,7 @@ function process_lineages(df::DataFrame;
     processed_groups = Vector{DataFrame}()
 
     prog = Progress(length(grouped), desc="Processing lineages")
-    for (group_id, group) in enumerate(grouped)
+    @inbounds for (group_id, group) in enumerate(grouped)
         next!(prog)
         if nrow(group) > 1
             sequences = LongDNA{4}.(group.cdr3)
@@ -103,11 +103,11 @@ function process_lineages(df::DataFrame;
         else
             group[!, :cluster] .= 1
         end
-        
+
         group[!, :group_id] .= group_id
 
         cluster_grouped = groupby(group, :cluster)
-        for cgroup in cluster_grouped
+        @inbounds for cgroup in cluster_grouped
             cgroup[!, :cluster_size] .= nrow(cgroup)
             cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
             transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
@@ -121,4 +121,59 @@ function process_lineages(df::DataFrame;
     result[!, :lineage_id] = groupindices(groupby(result, [:group_id, :cluster]))
 
     return result
+end
+
+"""
+    collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
+
+Collapse lineages in a DataFrame based on CDR3 sequence frequency and a specified collapse strategy.
+
+# Arguments
+- `df::DataFrame`: Input DataFrame containing lineage data. Must have columns [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3].
+- `cdr3_frequency_threshold::Float64`: Minimum frequency threshold for CDR3 sequences (0.0 to 1.0).
+- `collapse_strategy::Symbol=:hardest`: Strategy for collapsing lineages. Options are:
+  - `:hardest`: Select only the most frequent sequence for each lineage.
+  - `:soft`: Select all sequences that meet or exceed the `cdr3_frequency_threshold`.
+
+# Returns
+- `DataFrame`: Collapsed lineage data.
+
+# Example
+```julia
+lineages = DataFrame(...)  # Your input data
+collapsed = collapse_lineages(lineages, 0.1, :soft)
+```
+"""
+function collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
+    if !(0.0 <= cdr3_frequency_threshold <= 1.0)
+        throw(ArgumentError("cdr3_frequency_threshold must be between 0.0 and 1.0"))
+    end
+    if !(collapse_strategy in [:hardest, :soft])
+        throw(ArgumentError("Invalid collapse strategy. Use :hardest or :soft."))
+    end
+
+    # Group by the specified columns
+    grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
+
+    # Count occurrences of each unique combination
+    counted = combine(grouped, nrow => :count)
+
+    # Calculate frequency within each lineage
+    lineage_grouped = groupby(counted, :lineage_id)
+    with_frequency = transform(lineage_grouped, :count => (x -> x ./ sum(x)) => :frequency)
+
+    # Filter based on the threshold and collapse strategy
+    function filter_lineage(group)
+        if collapse_strategy == :hardest
+            # Pick the single most frequent sequence
+            return group[argmax(group.frequency), :]
+        else
+            # Pick all sequences above the threshold
+            return group[group.frequency .>= cdr3_frequency_threshold, :]
+        end
+    end
+
+    collapsed = combine(groupby(with_frequency, :lineage_id), filter_lineage)
+
+    return collapsed
 end

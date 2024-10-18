@@ -6,7 +6,7 @@ module LineageCollapse
     using BioSequences
     using StringDistances
 
-    export load_data, preprocess_data, deduplicate_data, process_lineages, plot_diagnostics
+    export load_data, preprocess_data, deduplicate_data, process_lineages, collapse_lineages, plot_diagnostics
     export DistanceMetric, ClusteringMethod
     export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
     export compute_distance, compute_pairwise_distance, perform_clustering
