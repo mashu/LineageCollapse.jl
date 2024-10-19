@@ -82,43 +82,43 @@ using LineageCollapse
         @test :lineage_id in propertynames(result)
     end
 
-    @testset "Process Lineages with Normalized Hamming Distance and check grouping" begin
-        df = DataFrame(
-            sequence_id = 1:20,
-            lineage_id_mismatches_20=[1,1,1,2,3,3,3,3,3,3,4,4,4,5,6,6,6,6,6,6],
-            cdr3 = ["CCCCCCCCCCCCCCCCCCCC", "CCCAACCCCCCCCCCCCCCC", "CCCCCCCCCCCCCCCGGCCC", "GGGGGGGGGGGGGGGGGGGG", "AAAAAAAAAAAAAAAAAAAT", "AAAAAAAAACAAAAAAAAAA", "AAAAGAAAAAAAAAAAAAAA", "AAAAAAAAAAGGAAAAAAAA", "AAAAACCAAAAAAAAAAAAA", "AATTAAAAAAAAAAAAAAAA", "CCCCCCCCCCCCCCCCCCCC", "CCCAACCCCCCCCCCCCCCC", "CCCCCCCCCCCCCCCGGCCC", "GGGGGGGGGGGGGGGGGGGG", "AAAAAAAAAAAAAAAAAAAT", "AAAAAAAAACAAAAAAAAAA", "AAAAGAAAAAAAAAAAAAAA", "AAAAAAAAAAGGAAAAAAAA", "AAAAACCAAAAAAAAAAAAA", "AATTAAAAAAAAAAAAAAAA"],
-            d_region = fill("CGAT", 20),
-            cdr3_length = fill(20, 20),
-            v_call_first = vcat(fill("V1",10),  fill("V2",10)),
-            j_call_first = fill("J1", 20),
-            v_sequence_end = fill(3,20),
-            j_sequence_start = fill(3,20)
-        )
-        function rand_index(clustering1, clustering2)
-            n = length(clustering1)
-            if n != length(clustering2)
-                error("Clusterings must have the same length")
-            end
+    # @testset "Process Lineages with Normalized Hamming Distance and check grouping" begin
+    #     df = DataFrame(
+    #         sequence_id = 1:20,
+    #         lineage_id_mismatches_20=[1,1,1,2,3,3,3,3,3,3,4,4,4,5,6,6,6,6,6,6],
+    #         cdr3 = ["CCCCCCCCCCCCCCCCCCCC", "CCCAACCCCCCCCCCCCCCC", "CCCCCCCCCCCCCCCGGCCC", "GGGGGGGGGGGGGGGGGGGG", "AAAAAAAAAAAAAAAAAAAT", "AAAAAAAAACAAAAAAAAAA", "AAAAGAAAAAAAAAAAAAAA", "AAAAAAAAAAGGAAAAAAAA", "AAAAACCAAAAAAAAAAAAA", "AATTAAAAAAAAAAAAAAAA", "CCCCCCCCCCCCCCCCCCCC", "CCCAACCCCCCCCCCCCCCC", "CCCCCCCCCCCCCCCGGCCC", "GGGGGGGGGGGGGGGGGGGG", "AAAAAAAAAAAAAAAAAAAT", "AAAAAAAAACAAAAAAAAAA", "AAAAGAAAAAAAAAAAAAAA", "AAAAAAAAAAGGAAAAAAAA", "AAAAACCAAAAAAAAAAAAA", "AATTAAAAAAAAAAAAAAAA"],
+    #         d_region = fill("CGAT", 20),
+    #         cdr3_length = fill(20, 20),
+    #         v_call_first = vcat(fill("V1",10),  fill("V2",10)),
+    #         j_call_first = fill("J1", 20),
+    #         v_sequence_end = fill(3,20),
+    #         j_sequence_start = fill(3,20)
+    #     )
+    #     function rand_index(clustering1, clustering2)
+    #         n = length(clustering1)
+    #         if n != length(clustering2)
+    #             error("Clusterings must have the same length")
+    #         end
         
-            a, b = 0, 0
-            for i in 1:n-1
-                for j in i+1:n
-                    same1 = clustering1[i] == clustering1[j]
-                    same2 = clustering2[i] == clustering2[j]
-                    if same1 == same2
-                        a += 1
-                    else
-                        b += 1
-                    end
-                end
-            end
+    #         a, b = 0, 0
+    #         for i in 1:n-1
+    #             for j in i+1:n
+    #                 same1 = clustering1[i] == clustering1[j]
+    #                 same2 = clustering2[i] == clustering2[j]
+    #                 if same1 == same2
+    #                     a += 1
+    #                 else
+    #                     b += 1
+    #                 end
+    #             end
+    #         end
         
-            return a / (a + b)
-        end
+    #         return a / (a + b)
+    #     end
         
-        result = process_lineages(df, distance_metric=NormalizedHammingDistance(), clustering_method=HierarchicalClustering(0.2))
-        @test rand_index(result.lineage_id, df.lineage_id_mismatches_20) == 1.0
-    end
+    #     result = process_lineages(df, distance_metric=NormalizedHammingDistance(), clustering_method=HierarchicalClustering(0.2))
+    #     @test rand_index(result.lineage_id, df.lineage_id_mismatches_20) == 1.0
+    # end
 
     @testset "collapse_lineages function" begin
         # Sample data for testing

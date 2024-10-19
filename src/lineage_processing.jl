@@ -9,75 +9,74 @@ struct NormalizedHammingDistance <: NormalizedDistanceMetric end
 struct LevenshteinDistance <: DistanceMetric end
 
 """
-    HierarchicalClustering(cutoff::Float64)
+    HierarchicalClustering(cutoff::Float32)
 
 A type representing hierarchical clustering with a cutoff.
 
 # Arguments
-- `cutoff::Float64`: The cutoff value for the clustering, below which clusters are merged. Higher values result in fewer clusters.
+- `cutoff::Float32`: The cutoff value for the clustering, below which clusters are merged. Higher values result in fewer clusters.
 """
 struct HierarchicalClustering <: ClusteringMethod
-    cutoff::Float64
+    cutoff::Float32
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     @assert length(x) == length(y)
     return mismatches(x, y)
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     @assert length(x) == length(y)
     return mismatches(x, y) / length(x)
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     return evaluate(Levenshtein(), String(x), String(y))
 end
 
 """
-    compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float64}
+    compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float32}
 
 Compute pairwise distances between sequences using the specified distance metric.
 """
 function compute_pairwise_distance(
     metric::M, 
     sequences::AbstractVector{S}
-)::Matrix{Float64} where {M <: Union{DistanceMetric, NormalizedDistanceMetric}, S <: LongSequence{DNAAlphabet{4}}}
+)::Matrix{Float32} where {M <: Union{DistanceMetric, NormalizedDistanceMetric}, S <: LongSequence{DNAAlphabet{4}}}
     n = length(sequences)
     @assert n > 0 "No sequences provided for distance calculation"
-    dist_matrix = zeros(Float64, n, n)
+    dist_matrix = spzeros(Float32, n, n)
 
     Threads.@threads for i in 1:n
         for j in i+1:n
             @inbounds dist = compute_distance(metric, sequences[i], sequences[j])
             @inbounds dist_matrix[i, j] = dist
-            @inbounds dist_matrix[j, i] = dist
         end
     end
-    return dist_matrix
+    return Symmetric(dist_matrix)
 end
 
 """
-    perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
+    perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::T)::Vector{Int} where T <: AbstractMatrix
 
 Perform hierarchical clustering on the distance matrix using the specified method and linkage.
 """
-function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
+function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::T)::Vector{Int} where T <: AbstractMatrix
     hclusters = hclust(dist_matrix, linkage=linkage)
     return cutree(hclusters, h=method.cutoff)
 end
