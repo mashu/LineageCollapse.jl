@@ -68,7 +68,7 @@ function compute_pairwise_distance(
             @inbounds dist_matrix[i, j] = dist
         end
     end
-    return Symmetric(dist_matrix)
+    return dist_matrix
 end
 
 """
@@ -77,7 +77,7 @@ end
 Perform hierarchical clustering on the distance matrix using the specified method and linkage.
 """
 function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::T)::Vector{Int} where T <: AbstractMatrix
-    hclusters = hclust(dist_matrix, linkage=linkage)
+    hclusters = hclust(dist_matrix, linkage=linkage, uplo=:U)
     return cutree(hclusters, h=method.cutoff)
 end
 
