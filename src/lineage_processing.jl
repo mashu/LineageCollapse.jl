@@ -9,76 +9,75 @@ struct NormalizedHammingDistance <: NormalizedDistanceMetric end
 struct LevenshteinDistance <: DistanceMetric end
 
 """
-    HierarchicalClustering(cutoff::Float64)
+    HierarchicalClustering(cutoff::Float32)
 
 A type representing hierarchical clustering with a cutoff.
 
 # Arguments
-- `cutoff::Float64`: The cutoff value for the clustering, below which clusters are merged. Higher values result in fewer clusters.
+- `cutoff::Float32`: The cutoff value for the clustering, below which clusters are merged. Higher values result in fewer clusters.
 """
 struct HierarchicalClustering <: ClusteringMethod
-    cutoff::Float64
+    cutoff::Float32
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     @assert length(x) == length(y)
     return mismatches(x, y)
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     @assert length(x) == length(y)
     return mismatches(x, y) / length(x)
 end
 
 """
-    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float64
+    compute_distance(metric::DistanceMetric, x::LongDNA{4}, y::LongDNA{4})::Float32
 
 Compute the distance between two `LongDNA{4}` sequences using the specified distance metric.
 """
-function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::Float64
+function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
     return evaluate(Levenshtein(), String(x), String(y))
 end
 
 """
-    compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float64}
+    compute_pairwise_distance(metric::Union{DistanceMetric, NormalizedDistanceMetric}, sequences::Vector{LongDNA{4}})::Matrix{Float32}
 
 Compute pairwise distances between sequences using the specified distance metric.
 """
 function compute_pairwise_distance(
     metric::M, 
     sequences::AbstractVector{S}
-)::Matrix{Float64} where {M <: Union{DistanceMetric, NormalizedDistanceMetric}, S <: LongSequence{DNAAlphabet{4}}}
+)::Matrix{Float32} where {M <: Union{DistanceMetric, NormalizedDistanceMetric}, S <: LongSequence{DNAAlphabet{4}}}
     n = length(sequences)
     @assert n > 0 "No sequences provided for distance calculation"
-    dist_matrix = zeros(Float64, n, n)
+    dist_matrix = zeros(Float32, n, n)
 
     Threads.@threads for i in 1:n
         for j in i+1:n
             @inbounds dist = compute_distance(metric, sequences[i], sequences[j])
             @inbounds dist_matrix[i, j] = dist
-            @inbounds dist_matrix[j, i] = dist
         end
     end
     return dist_matrix
 end
 
 """
-    perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
+    perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::T)::Vector{Int} where T <: AbstractMatrix
 
 Perform hierarchical clustering on the distance matrix using the specified method and linkage.
 """
-function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::Matrix{Float64})::Vector{Int}
-    hclusters = hclust(dist_matrix, linkage=linkage)
+function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::T)::Vector{Int} where T <: AbstractMatrix
+    hclusters = hclust(dist_matrix, linkage=linkage, uplo=:U)
     return cutree(hclusters, h=method.cutoff)
 end
 
@@ -92,39 +91,42 @@ Process lineages from a DataFrame of CDR3 sequences.
 """
 function process_lineages(df::DataFrame; 
                           distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
-                          clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
+                          clustering_method::ClusteringMethod = HierarchicalClustering(0.2),
                           linkage::Symbol = :single)::DataFrame
-    # Convert upfront to LongDNA{4} for performance
-    df.cdr3 = LongDNA{4}.(df.cdr3)
-
-    grouped = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
+    # Group by VJ combination and CDR3 length first
+    groups = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
-    prog = Progress(length(grouped), desc="Processing lineages")
-    @inbounds for (group_id, group) in enumerate(grouped)
-        next!(prog)
-        if nrow(group) > 1
-            dist_matrix = compute_pairwise_distance(distance_metric, group.cdr3)
-            group[!, :cluster] = perform_clustering(clustering_method, linkage, dist_matrix)
+    for group in groups
+        # Within each VJ+length group, get unique CDR3s
+        unique_dna_data = unique(group, :cdr3)
+
+        if nrow(unique_dna_data) > 1
+            dna_seqs = LongDNA{4}.(unique_dna_data.cdr3)
+            dist_matrix = compute_pairwise_distance(distance_metric, dna_seqs)
+            unique_dna_data[!, :cluster] = perform_clustering(clustering_method, linkage, dist_matrix)
         else
-            group[!, :cluster] .= 1
+            unique_dna_data[!, :cluster] .= 1
         end
 
-        group[!, :group_id] .= group_id
+        # Map clusters back to all sequences
+        group_result = leftjoin(group,
+                              select(unique_dna_data, :cdr3, :cluster),
+                              on = :cdr3)
 
-        cluster_grouped = groupby(group, :cluster)
-        @inbounds for cgroup in cluster_grouped
-            cgroup[!, :cluster_size] .= nrow(cgroup)
-            cgroup = transform(groupby(cgroup, [:v_call_first, :j_call_first, :cluster, :cdr3_length, :cdr3, :d_region, :cluster_size, :group_id]), nrow => :cdr3_count)
-            transform!(groupby(cgroup, :cluster), :cdr3_count => maximum => :max_cdr3_count)
-            transform!(groupby(cgroup, :cluster), [:cdr3_count, :max_cdr3_count] => ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
-            push!(processed_groups, cgroup)
-        end
+        # Process statistics
+        transform!(group_result, :cluster => (x -> length.(x)) => :cluster_size)
+        group_result = transform(groupby(group_result, [:cluster, :cdr3]), nrow => :cdr3_count)
+        transform!(groupby(group_result, :cluster), :cdr3_count => maximum => :max_cdr3_count)
+        transform!(groupby(group_result, :cluster),
+                  [:cdr3_count, :max_cdr3_count] =>
+                  ((count, max_count) -> count ./ max_count) => :cdr3_frequency)
+
+        push!(processed_groups, group_result)
     end
-    finish!(prog)
 
     result = vcat(processed_groups...)
-    result[!, :lineage_id] = groupindices(groupby(result, [:group_id, :cluster]))
+    result[!, :lineage_id] = groupindices(groupby(result, [:v_call_first, :j_call_first, :cdr3_length, :cluster]))
 
     return result
 end

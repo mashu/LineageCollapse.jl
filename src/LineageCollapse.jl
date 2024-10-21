@@ -5,6 +5,8 @@ module LineageCollapse
     using Clustering
     using BioSequences
     using StringDistances
+    using SparseArrays
+    using LinearAlgebra
 
     export load_data, preprocess_data, deduplicate_data, process_lineages, collapse_lineages, plot_diagnostics
     export DistanceMetric, ClusteringMethod

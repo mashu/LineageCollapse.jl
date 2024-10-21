@@ -2,6 +2,7 @@ using Test
 using BioSequences
 using DataFrames
 using LineageCollapse
+using LinearAlgebra
 
 @testset "Lineage Processing" begin
     @testset "Distance Metrics" begin
@@ -17,8 +18,8 @@ using LineageCollapse
 
     @testset "Pairwise Distance Computation" begin
         sequences = [dna"ATCT", dna"ATCG", dna"ATTT"]
-        expected_hamming = [0.0 1.0 1.0; 1.0 0.0 2.0; 1.0 2.0 0.0]
-        expected_levenshtein =  [0.0 1.0 1.0; 1.0 0.0 2.0; 1.0 2.0 0.0]
+        expected_hamming = [0.0 1.0 1.0; 0.0 0.0 2.0; 0.0 0.0 0.0]
+        expected_levenshtein =  [0.0 1.0 1.0; 0.0 0.0 2.0; 0.0 0.0 0.0]
 
         @test compute_pairwise_distance(HammingDistance(), sequences) ≈ expected_hamming
         @test compute_pairwise_distance(LevenshteinDistance(), sequences) ≈ expected_levenshtein
@@ -115,7 +116,7 @@ using LineageCollapse
         
             return a / (a + b)
         end
-        
+
         result = process_lineages(df, distance_metric=NormalizedHammingDistance(), clustering_method=HierarchicalClustering(0.2))
         @test rand_index(result.lineage_id, df.lineage_id_mismatches_20) == 1.0
     end
