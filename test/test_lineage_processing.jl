@@ -143,7 +143,7 @@ using LinearAlgebra
         @testset "Soft collapse strategy" begin
             result = collapse_lineages(test_df, 0.3, :soft)
 
-            @test nrow(result) == 4  # Should keep sequences above 30% frequency
+            @test nrow(result) == 6  # Should keep sequences above 30% frequency per lineage
             @test "ATCG" in result.cdr3  # Should keep ATCG in lineage 1
             @test "ATTG" in result.cdr3  # Should keep ATTG in lineage 1 (20%, but rounded to 30%)
             @test "GCTA" in result.cdr3  # Should keep GCTA in lineage 2

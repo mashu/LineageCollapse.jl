@@ -20,9 +20,18 @@ function load_data(filepath::String;
                    delimiter::Char='\t', 
                    required_columns=[:sequence_id, :sequence, :v_sequence_end, :j_sequence_start, :cdr3, :v_call, :j_call, :stop_codon])::DataFrame
     try
-        df = CSV.File(filepath, delim=delimiter, select=required_columns) |> DataFrame
-        df = df[!, required_columns]  # This is to ensure exception is thrown if any column is missing
+        # Read all columns
+        df = CSV.File(filepath, delim=delimiter) |> DataFrame
+        available_columns = names(df)
+
+        # Check if required columns are present
+        missing_columns = setdiff(required_columns, Symbol.(available_columns))
+        if !isempty(missing_columns)
+            throw(ArgumentError("Missing required columns: $(join(missing_columns, ", "))"))
+        end
+
+        return df
     catch e
-        rethrow(e)
+        throw(ErrorException("Error loading data: $(sprint(showerror, e))"))
     end
 end

@@ -160,28 +160,26 @@ function collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, col
         throw(ArgumentError("Invalid collapse strategy. Use :hardest or :soft."))
     end
 
-    # Group by the specified columns
     grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
+    counted = combine(grouped, nrow => :sequence_count)
 
-    # Count occurrences of each unique combination
-    counted = combine(grouped, nrow => :count)
-
-    # Calculate frequency within each lineage
     lineage_grouped = groupby(counted, :lineage_id)
-    with_frequency = transform(lineage_grouped, :count => (x -> x ./ sum(x)) => :frequency)
+    with_frequency = transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :frequency)
 
-    # Filter based on the threshold and collapse strategy
-    function filter_lineage(group)
-        if collapse_strategy == :hardest
-            # Pick the single most frequent sequence
-            return group[argmax(group.frequency), :]
-        else
-            # Pick all sequences above the threshold
-            return group[group.frequency .>= cdr3_frequency_threshold, :]
+    df_with_freq = leftjoin(df, with_frequency,
+        on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
+        makeunique=true)
+
+    collapsed = if collapse_strategy == :hardest
+        combine(groupby(df_with_freq, :lineage_id)) do group
+            row_idx = argmax(group.frequency)  # Single highest frequency
+            group[row_idx:row_idx, :]
+        end
+    else
+        combine(groupby(df_with_freq, :lineage_id)) do group
+            group[group.frequency .>= cdr3_frequency_threshold, :]
         end
     end
 
-    collapsed = combine(groupby(with_frequency, :lineage_id), filter_lineage)
-
     return collapsed
-end
+ end
