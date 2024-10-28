@@ -37,11 +37,11 @@ result1 = process_lineages(preprocessed_df)
 
 # Assign lineages using length Normalized Hamming distance
 # with Hierarchical clustering but different CDR3 similarity cutoff
-result2 = process_lineages(preprocessed_df, 
-                                    distance_metric=NormalizedHammingDistance(), 
+result2 = process_lineages(preprocessed_df,
+                                    distance_metric=NormalizedHammingDistance(),
                                     clustering_method=HierarchicalClustering(0.1))
-# Collapse identical CDR3s but only within each cluster
-collapsed = combine(groupby(result, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3]), :cdr3 => length => :count)
+# Collapse
+collapsed_df = collapse_lineages(lineages, 0.2, :soft)
 
 # Generate diagnostic plots (requires CairoMakie)
 # using CairoMakie

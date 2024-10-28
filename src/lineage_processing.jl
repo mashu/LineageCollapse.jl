@@ -55,7 +55,7 @@ end
 Compute pairwise distances between sequences using the specified distance metric.
 """
 function compute_pairwise_distance(
-    metric::M, 
+    metric::M,
     sequences::AbstractVector{S}
 )::Matrix{Float32} where {M <: Union{DistanceMetric, NormalizedDistanceMetric}, S <: LongSequence{DNAAlphabet{4}}}
     n = length(sequences)
@@ -82,14 +82,14 @@ function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dis
 end
 
 """
-    process_lineages(df::DataFrame; 
+    process_lineages(df::DataFrame;
                     distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
                     clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
                     linkage::Symbol = :single)::DataFrame
 
 Process lineages from a DataFrame of CDR3 sequences.
 """
-function process_lineages(df::DataFrame; 
+function process_lineages(df::DataFrame;
                           distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
                           clustering_method::ClusteringMethod = HierarchicalClustering(0.2),
                           linkage::Symbol = :single)::DataFrame
@@ -132,19 +132,23 @@ function process_lineages(df::DataFrame;
 end
 
 """
-    collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
+    collapse_lineages(df::DataFrame, clone_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
 
-Collapse lineages in a DataFrame based on CDR3 sequence frequency and a specified collapse strategy.
+Collapse lineages in a DataFrame based on clone frequency and a specified collapse strategy.
 
 # Arguments
 - `df::DataFrame`: Input DataFrame containing lineage data. Must have columns [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3].
-- `cdr3_frequency_threshold::Float64`: Minimum frequency threshold for CDR3 sequences (0.0 to 1.0).
+- `clone_frequency_threshold::Float64`: Minimum frequency threshold for clones (0.0 to 1.0).
 - `collapse_strategy::Symbol=:hardest`: Strategy for collapsing lineages. Options are:
-  - `:hardest`: Select only the most frequent sequence for each lineage.
-  - `:soft`: Select all sequences that meet or exceed the `cdr3_frequency_threshold`.
+  - `:hardest`: Select only the most frequent clone for each lineage.
+  - `:soft`: Select all clones that meet or exceed the `clone_frequency_threshold`.
 
 # Returns
-- `DataFrame`: Collapsed lineage data.
+- `DataFrame`: Collapsed lineage data containing a new column:
+  - `clone_frequency`: Represents the relative frequency of each clone within its lineage,
+    calculated as (count of specific clone) / (total sequences in lineage).
+    A clone is defined by unique combination of D region, J call, V call, and CDR3 sequence.
+    Values range from 0.0 to 1.0, with higher values indicating more abundant clones in the lineage.
 
 # Example
 ```julia
@@ -152,9 +156,9 @@ lineages = DataFrame(...)  # Your input data
 collapsed = collapse_lineages(lineages, 0.1, :soft)
 ```
 """
-function collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
-    if !(0.0 <= cdr3_frequency_threshold <= 1.0)
-        throw(ArgumentError("cdr3_frequency_threshold must be between 0.0 and 1.0"))
+function collapse_lineages(df::DataFrame, clone_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
+    if !(0.0 <= clone_frequency_threshold <= 1.0)
+        throw(ArgumentError("clone_frequency_threshold must be between 0.0 and 1.0"))
     end
     if !(collapse_strategy in [:hardest, :soft])
         throw(ArgumentError("Invalid collapse strategy. Use :hardest or :soft."))
@@ -164,7 +168,7 @@ function collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, col
     counted = combine(grouped, nrow => :sequence_count)
 
     lineage_grouped = groupby(counted, :lineage_id)
-    with_frequency = transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :frequency)
+    with_frequency = transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :clone_frequency)
 
     df_with_freq = leftjoin(df, with_frequency,
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
@@ -172,14 +176,14 @@ function collapse_lineages(df::DataFrame, cdr3_frequency_threshold::Float64, col
 
     collapsed = if collapse_strategy == :hardest
         combine(groupby(df_with_freq, :lineage_id)) do group
-            row_idx = argmax(group.frequency)  # Single highest frequency
+            row_idx = argmax(group.clone_frequency)  # Single highest frequency
             group[row_idx:row_idx, :]
         end
     else
         combine(groupby(df_with_freq, :lineage_id)) do group
-            group[group.frequency .>= cdr3_frequency_threshold, :]
+            group[group.clone_frequency .>= clone_frequency_threshold, :]
         end
     end
 
     return collapsed
- end
+end

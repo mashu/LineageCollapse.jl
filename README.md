@@ -36,7 +36,8 @@ preprocessed_df = preprocess_data(df)
 result = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
 
 # Collapse identical CDR3s but only within each cluster
-collapsed = combine(groupby(result, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3]), :cdr3 => length => :count)
+# collapsed = collapse_lineages(lineages, 0.2, :soft)
+collapsed = collapse_lineages(lineages, 0.2, :hardrest)
 ```
 
 ## Input Requirements

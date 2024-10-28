@@ -100,7 +100,7 @@ using LinearAlgebra
             if n != length(clustering2)
                 error("Clusterings must have the same length")
             end
-        
+
             a, b = 0, 0
             for i in 1:n-1
                 for j in i+1:n
@@ -113,7 +113,7 @@ using LinearAlgebra
                     end
                 end
             end
-        
+
             return a / (a + b)
         end
 
@@ -150,10 +150,10 @@ using LinearAlgebra
             @test "GCTT" in result.cdr3  # Should keep GCTT in lineage 2 (20%, but rounded to 30%)
 
             # Check frequencies
-            @test result[result.cdr3 .== "ATCG", :frequency][1] ≈ 0.6666666666666666 atol=1e-6
-            @test result[result.cdr3 .== "ATTG", :frequency][1] ≈ 0.3333333333333333 atol=1e-6
-            @test result[result.cdr3 .== "GCTA", :frequency][1] ≈ 0.6666666666666666 atol=1e-6
-            @test result[result.cdr3 .== "GCTT", :frequency][1] ≈ 0.3333333333333333 atol=1e-6
+            @test result[result.cdr3 .== "ATCG", :clone_frequency][1] ≈ 0.6666666666666666 atol=1e-6
+            @test result[result.cdr3 .== "ATTG", :clone_frequency][1] ≈ 0.3333333333333333 atol=1e-6
+            @test result[result.cdr3 .== "GCTA", :clone_frequency][1] ≈ 0.6666666666666666 atol=1e-6
+            @test result[result.cdr3 .== "GCTT", :clone_frequency][1] ≈ 0.3333333333333333 atol=1e-6
         end
 
         @testset "Edge cases" begin
