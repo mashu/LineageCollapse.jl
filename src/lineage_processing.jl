@@ -104,14 +104,24 @@ function process_lineages(df::DataFrame;
         if nrow(unique_dna_data) > 1
             dna_seqs = LongDNA{4}.(unique_dna_data.cdr3)
             dist_matrix = compute_pairwise_distance(distance_metric, dna_seqs)
+
+            # Calculate minimum distances for each sequence, excluding zeros on diagonal
+            min_distances = zeros(Float32, size(dist_matrix, 1))
+            for i in 1:size(dist_matrix, 1)
+                non_zero_distances = filter(x -> x > 0, dist_matrix[i,:])
+                min_distances[i] = isempty(non_zero_distances) ? 0.0f0 : minimum(non_zero_distances)
+            end
+            unique_dna_data[!, :min_distance] = min_distances
+
             unique_dna_data[!, :cluster] = perform_clustering(clustering_method, linkage, dist_matrix)
         else
             unique_dna_data[!, :cluster] .= 1
+            unique_dna_data[!, :min_distance] .= 0.0f0  # Single sequence has no distances to others
         end
 
-        # Map clusters back to all sequences
+        # Map clusters and min distances back to all sequences
         group_result = leftjoin(group,
-                              select(unique_dna_data, :cdr3, :cluster),
+                              select(unique_dna_data, :cdr3, :cluster, :min_distance),
                               on = :cdr3)
 
         # Process statistics
