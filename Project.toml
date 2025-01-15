@@ -23,7 +23,7 @@ VisualizationExt = "CairoMakie"
 [compat]
 BioSequences = "3.1.6"
 CSV = "0.10.14"
-CairoMakie = "0.12.13"
+CairoMakie = "0.12.13, 0.13"
 Clustering = "0.15.7"
 DataFrames = "1.7.0"
 LinearAlgebra = "1.11.0"
