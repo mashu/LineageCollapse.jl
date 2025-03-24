@@ -12,7 +12,6 @@ LineageCollapse.jl is a high-performance Julia package for performing soft linea
 - Fast and memory-efficient processing of large-scale immune repertoire data
 - Implements a "soft" lineage collapsing algorithm
 - Supports AIRR-compliant input data formats
-- Optional visualization with diagnostic plots
 - Multithreaded processing for improved performance on multi-core systems
 
 ## Installation
@@ -59,12 +58,6 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 2. **Distance Calculation**: Pairwise Hamming distances are computed between CDR3 sequences within each group.
 3. **Clustering**: Single linkage hierarchical clustering is performed on the distance matrix.
 4. **Cluster Formation**: Clusters are determine by a cutoff on distances below which clusters are merged, low value means more clusters, higher value fewer clusters.
-
-## Visualization
-
-The `plot_diagnostics` function generates a set of diagnostic plots to help assess the results of lineage collapsing:
-
-![Diagnostics](https://github.com/user-attachments/assets/f1f4aac6-6ad4-454a-bc7a-d7a80620dc30)
 
 ## License
 

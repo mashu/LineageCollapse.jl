@@ -8,7 +8,7 @@ Documentation for [LineageCollapse](https://github.com/mashu/LineageCollapse.jl)
 
 ## Overview
 
-LineageCollapse provides tools for processing and analyzing adaptive immune receptor repertoire (AIRR) data. It offers functions for data loading, preprocessing, lineage collapsing, and visualization.
+LineageCollapse provides tools for processing and analyzing adaptive immune receptor repertoire (AIRR) data. It offers functions for data loading, preprocessing, lineage collapsing.
 
 ## Installation
 
