@@ -2,11 +2,27 @@
 abstract type DistanceMetric end
 abstract type NormalizedDistanceMetric end
 abstract type ClusteringMethod end
+abstract type CollapseStrategy end
 
 # Concrete types for distance metrics
 struct HammingDistance <: DistanceMetric end
 struct NormalizedHammingDistance <: NormalizedDistanceMetric end
 struct LevenshteinDistance <: DistanceMetric end
+
+# Collapse strategies
+struct Hardest <: CollapseStrategy end
+struct Soft{T <: AbstractFloat} <: CollapseStrategy
+    cutoff::T
+    function Soft{T}(cutoff::T) where {T <: AbstractFloat}
+        if !(0.0 <= cutoff <= 1.0)
+            throw(ArgumentError("clone_frequency_threshold must be between 0.0 and 1.0"))
+        end
+        return new{T}(cutoff)
+    end
+end
+
+Soft(cutoff::AbstractFloat) = Soft{typeof(cutoff)}(cutoff)
+Soft(cutoff::Integer) = Soft(float(cutoff))
 
 """
     HierarchicalClustering(cutoff::Float32)
@@ -81,17 +97,52 @@ function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dis
     return cutree(hclusters, h=method.cutoff)
 end
 
+_cdr3_threshold_params(threshold::Integer) = begin
+    if threshold < 0
+        throw(ArgumentError("cdr3_mismatch_threshold must be non-negative"))
+    end
+    return HammingDistance(), HierarchicalClustering(Float32(threshold))
+end
+
+_cdr3_threshold_params(threshold::AbstractFloat) = begin
+    if !(0.0 <= threshold <= 1.0)
+        throw(ArgumentError("cdr3_mismatch_threshold as a fraction must be between 0.0 and 1.0"))
+    end
+    return NormalizedHammingDistance(), HierarchicalClustering(Float32(threshold))
+end
+
+"""
+    process_lineages(df::DataFrame, cdr3_mismatch_threshold::Union{Integer,AbstractFloat};
+                     linkage::Symbol = :single)::DataFrame
+
+Process lineages from a DataFrame of CDR3 sequences using a mismatch threshold.
+
+If `cdr3_mismatch_threshold` is an `Integer`, it is interpreted as an absolute
+number of allowed mismatches. If it is a floating-point value, it is interpreted
+as a fraction of the CDR3 length (0.0 to 1.0). Use an integer literal (e.g. `1`)
+to request absolute mismatches when `1.0` would be ambiguous.
+"""
+function process_lineages(df::DataFrame, cdr3_mismatch_threshold::Union{Integer,AbstractFloat};
+                          linkage::Symbol = :single)::DataFrame
+    distance_metric, clustering_method = _cdr3_threshold_params(cdr3_mismatch_threshold)
+    return process_lineages(df;
+        distance_metric=distance_metric,
+        clustering_method=clustering_method,
+        linkage=linkage,
+    )
+end
+
 """
     process_lineages(df::DataFrame;
-                    distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
-                    clustering_method::ClusteringMethod = HierarchicalClustering(0.1),
+                    distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = HammingDistance(),
+                    clustering_method::ClusteringMethod = HierarchicalClustering(1.0),
                     linkage::Symbol = :single)::DataFrame
 
 Process lineages from a DataFrame of CDR3 sequences.
 """
 function process_lineages(df::DataFrame;
-                          distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = NormalizedHammingDistance(),
-                          clustering_method::ClusteringMethod = HierarchicalClustering(0.2),
+                          distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = HammingDistance(),
+                          clustering_method::ClusteringMethod = HierarchicalClustering(1.0),
                           linkage::Symbol = :single)::DataFrame
     # Group by VJ combination and CDR3 length first
     groups = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
@@ -142,16 +193,15 @@ function process_lineages(df::DataFrame;
 end
 
 """
-    collapse_lineages(df::DataFrame, clone_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
+    collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest())
 
 Collapse lineages in a DataFrame based on clone frequency and a specified collapse strategy.
 
 # Arguments
 - `df::DataFrame`: Input DataFrame containing lineage data. Must have columns [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3].
-- `clone_frequency_threshold::Float64`: Minimum frequency threshold for clones (0.0 to 1.0).
-- `collapse_strategy::Symbol=:hardest`: Strategy for collapsing lineages. Options are:
-  - `:hardest`: Select only the most frequent clone for each lineage.
-  - `:soft`: Select all clones that meet or exceed the `clone_frequency_threshold`.
+- `strategy::CollapseStrategy=Hardest()`: Strategy for collapsing lineages.
+  - `Hardest()` selects only the most frequent clone per lineage.
+  - `Soft(cutoff)` keeps clones whose frequency within a lineage is at or above `cutoff`.
 
 # Returns
 - `DataFrame`: Collapsed lineage data containing a new column:
@@ -163,17 +213,10 @@ Collapse lineages in a DataFrame based on clone frequency and a specified collap
 # Example
 ```julia
 lineages = DataFrame(...)  # Your input data
-collapsed = collapse_lineages(lineages, 0.1, :soft)
+collapsed = collapse_lineages(lineages, Soft(0.1))
 ```
 """
-function collapse_lineages(df::DataFrame, clone_frequency_threshold::Float64, collapse_strategy::Symbol=:hardest)
-    if !(0.0 <= clone_frequency_threshold <= 1.0)
-        throw(ArgumentError("clone_frequency_threshold must be between 0.0 and 1.0"))
-    end
-    if !(collapse_strategy in [:hardest, :soft])
-        throw(ArgumentError("Invalid collapse strategy. Use :hardest or :soft."))
-    end
-
+function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest())
     grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
     counted = combine(grouped, nrow => :sequence_count)
 
@@ -184,16 +227,22 @@ function collapse_lineages(df::DataFrame, clone_frequency_threshold::Float64, co
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
         makeunique=true)
 
-    collapsed = if collapse_strategy == :hardest
-        combine(groupby(df_with_freq, :lineage_id)) do group
-            row_idx = argmax(group.clone_frequency)  # Single highest frequency
-            group[row_idx:row_idx, :]
-        end
-    else
-        combine(groupby(df_with_freq, :lineage_id)) do group
-            group[group.clone_frequency .>= clone_frequency_threshold, :]
-        end
-    end
+    collapsed = _collapse_by_strategy(df_with_freq, strategy)
 
     return collapsed
 end
+
+function _collapse_by_strategy(df_with_freq::DataFrame, ::Hardest)
+    return combine(groupby(df_with_freq, :lineage_id)) do group
+        row_idx = argmax(group.clone_frequency)  # Single highest frequency
+        group[row_idx:row_idx, :]
+    end
+end
+
+function _collapse_by_strategy(df_with_freq::DataFrame, strategy::Soft)
+    return combine(groupby(df_with_freq, :lineage_id)) do group
+        group[group.clone_frequency .>= strategy.cutoff, :]
+    end
+end
+
+# Backward-compatible API

@@ -9,8 +9,9 @@ module LineageCollapse
     using LinearAlgebra
 
     export load_data, preprocess_data, deduplicate_data, process_lineages, collapse_lineages
-    export DistanceMetric, ClusteringMethod
+    export DistanceMetric, ClusteringMethod, CollapseStrategy
     export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
+    export Hardest, Soft
     export compute_distance, compute_pairwise_distance, perform_clustering
 
     include("data_loading.jl")
