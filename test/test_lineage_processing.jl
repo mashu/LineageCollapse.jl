@@ -121,6 +121,32 @@ using LinearAlgebra
         @test rand_index(result.lineage_id, df.lineage_id_mismatches_20) == 1.0
     end
 
+    @testset "Process Lineages with mismatch threshold" begin
+        df = DataFrame(
+            sequence_id = ["seq1", "seq2", "seq3"],
+            sequence = ["ATCG", "ATGG", "GGGG"],
+            v_call_first = ["V1", "V1", "V1"],
+            j_call_first = ["J1", "J1", "J1"],
+            cdr3 = ["ATCG", "ATGG", "GGGG"],
+            cdr3_length = [4, 4, 4],
+            d_region = ["CG", "GG", "GG"],
+            v_sequence_end = [1, 1, 1],
+            j_sequence_start = [3, 3, 3]
+        )
+
+        result_abs = process_lineages(df, 1)
+        @test result_abs[result_abs.cdr3 .== "ATCG", :lineage_id] ==
+              result_abs[result_abs.cdr3 .== "ATGG", :lineage_id]
+        @test result_abs[result_abs.cdr3 .== "ATCG", :lineage_id] !=
+              result_abs[result_abs.cdr3 .== "GGGG", :lineage_id]
+
+        result_frac = process_lineages(df, 0.25)
+        @test result_frac[result_frac.cdr3 .== "ATCG", :lineage_id] ==
+              result_frac[result_frac.cdr3 .== "ATGG", :lineage_id]
+        @test result_frac[result_frac.cdr3 .== "ATCG", :lineage_id] !=
+              result_frac[result_frac.cdr3 .== "GGGG", :lineage_id]
+    end
+
     @testset "collapse_lineages function" begin
         # Sample data for testing
         test_df = DataFrame(
@@ -133,7 +159,7 @@ using LinearAlgebra
         )
 
         @testset "Hardest collapse strategy" begin
-            result = collapse_lineages(test_df, 0.0, :hardest)
+            result = collapse_lineages(test_df, Hardest())
 
             @test nrow(result) == 2  # Should have one row per lineage
             @test result[result.lineage_id .== 1, :cdr3][1] == "ATCG"  # Most frequent for lineage 1
@@ -141,7 +167,7 @@ using LinearAlgebra
         end
 
         @testset "Soft collapse strategy" begin
-            result = collapse_lineages(test_df, 0.3, :soft)
+            result = collapse_lineages(test_df, Soft(0.3))
 
             @test nrow(result) == 6  # Should keep sequences above 30% frequency per lineage
             @test "ATCG" in result.cdr3  # Should keep ATCG in lineage 1
@@ -166,7 +192,7 @@ using LinearAlgebra
                 cdr3 = ["ATCG", "GCTA"],
                 count = [1, 1]
             )
-            result = collapse_lineages(single_seq_df, 0.0, :hardest)
+            result = collapse_lineages(single_seq_df, Hardest())
             @test nrow(result) == 2
             @test Set(result.cdr3) == Set(["ATCG", "GCTA"])
 
@@ -179,16 +205,14 @@ using LinearAlgebra
                 cdr3 = ["ATCG", "ATTG", "ATAG"],
                 count = [1, 1, 1]
             )
-            result = collapse_lineages(equal_freq_df, 0.0, :hardest)
+            result = collapse_lineages(equal_freq_df, Hardest())
             @test nrow(result) == 1
             @test result.cdr3[1] in ["ATCG", "ATTG", "ATAG"]
         end
 
         @testset "Invalid inputs" begin
-            @test_throws ArgumentError collapse_lineages(test_df, 0.1, :invalid_strategy)
-            @test_throws ArgumentError collapse_lineages(test_df, -0.1, :soft)
-            @test_throws ArgumentError collapse_lineages(test_df, -0.1, :hardest)
-            @test_throws ArgumentError collapse_lineages(test_df, 1.1, :hardest)
+            @test_throws ArgumentError Soft(-0.1)
+            @test_throws ArgumentError Soft(1.1)
         end
     end
 end

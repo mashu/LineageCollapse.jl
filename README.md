@@ -24,6 +24,21 @@ pkg> add LineageCollapse
 
 ## Quick Start
 
+## Key Concepts
+
+**Lineage**: A cluster of sequences grouped by `v_call`, `j_call`, and `cdr3_length`,
+then subdivided by the CDR3 distance clustering step (`process_lineages`). Each
+cluster gets a `lineage_id`.
+
+**Clone**: A unique combination of `d_region`, `v_call_first`, `j_call_first`, and
+`cdr3` within a lineage. Clone frequency is computed per lineage.
+
+**Collapse strategy**:
+- `Hardest()` keeps exactly one clone per lineage: the clone with the highest
+  `clone_frequency`.
+- `Soft(cutoff)` keeps all clones within each lineage whose `clone_frequency`
+  is at or above `cutoff`.
+
 ```julia
 using LineageCollapse
 
@@ -31,12 +46,21 @@ using LineageCollapse
 df = load_data("path/to/your/data.tsv")
 preprocessed_df = preprocess_data(df)
 
-# Use default Normalized Hamming distance with Hierarchical clustering and CDR3 similarity cutoff of 0.2
-result = process_lineages(preprocessed_df, clustering_method=HierarchicalClustering(0.2))
+# Default is absolute mismatch distance 1 and Hardest() collapsing.
+lineages = process_lineages(preprocessed_df)
 
-# Collapse identical CDR3s but only within each cluster
-# collapsed = collapse_lineages(lineages, 0.2, :soft)
-collapsed = collapse_lineages(lineages, 0.2, :hardrest)
+# Use a mismatch threshold as a fraction of CDR3 length (e.g. 0.2 = 20%)
+# This controls how sequences are clustered into lineages.
+# lineages = process_lineages(preprocessed_df, 0.2)
+
+# Or use an explicit absolute mismatch threshold (e.g. <= 1 mismatch)
+# lineages = process_lineages(preprocessed_df, 1)
+
+# Collapse identical CDR3s but only within each lineage.
+# Soft(0.2) keeps clones whose (reads in clone / reads in lineage) >= 0.2.
+# Hardest() keeps only the single most frequent clone per lineage.
+# collapsed = collapse_lineages(lineages, Soft(0.2))
+collapsed = collapse_lineages(lineages, Hardest())
 ```
 
 ## Input Requirements
@@ -53,7 +77,6 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 - stop_codon
 
 ## Algorithm Overview
-
 1. **Grouping**: Sequences are grouped by `v_call`, `j_call`, and `cdr3_length`.
 2. **Distance Calculation**: Pairwise Hamming distances are computed between CDR3 sequences within each group.
 3. **Clustering**: Single linkage hierarchical clustering is performed on the distance matrix.

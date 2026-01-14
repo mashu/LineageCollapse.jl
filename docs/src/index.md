@@ -32,16 +32,16 @@ df = load_data("path/to/your/airr_data.tsv.gz")
 # Preprocess data
 preprocessed_df = preprocess_data(df, min_d_region_length=3)
 
-# Assign lineages using default length Normalized Hamming distance and Hierarchical clustering
+# Assign lineages using default absolute mismatch distance 1
 result1 = process_lineages(preprocessed_df)
 
-# Assign lineages using length Normalized Hamming distance
-# with Hierarchical clustering but different CDR3 similarity cutoff
-result2 = process_lineages(preprocessed_df,
-                                    distance_metric=NormalizedHammingDistance(),
-                                    clustering_method=HierarchicalClustering(0.1))
+# Assign lineages using a CDR3 mismatch fraction (0.1 = 10%)
+result2 = process_lineages(preprocessed_df, 0.1)
+
+# Assign lineages using an absolute mismatch threshold (<= 1 mismatch)
+result3 = process_lineages(preprocessed_df, 1)
 # Collapse
-collapsed_df = collapse_lineages(lineages, 0.2, :soft)
+collapsed_df = collapse_lineages(lineages, Soft(0.2))
 
 # Generate diagnostic plots (requires CairoMakie)
 # using CairoMakie
