@@ -221,9 +221,9 @@ using LinearAlgebra
                 v_call_first = ["V1", "V1", "V1", "V1"],
                 cdr3 = ["AAA", "AAA", "BBB", "BBB"],
                 vdj_nt = ["VDJ1", "VDJ1", "VDJ2", "VDJ3"],
-                cdr3_count = [2, 2, 1, 1],
-                v_identity = [0.99, 0.99, 0.98, 0.98],
-                j_identity = [0.97, 0.97, 0.99, 0.99],
+                cdr3_count = [2, 2, 2, 2],
+                v_identity = [0.95, 0.95, 0.99, 0.99],
+                j_identity = [0.96, 0.96, 0.98, 0.98],
             )
 
             result_default = collapse_lineages(tie_df, Hardest())
@@ -240,7 +240,19 @@ using LinearAlgebra
 
             result_naive = collapse_lineages(tie_df, Hardest(); tie_breaker=ByMostNaive())
             @test nrow(result_naive) == 1
-            @test result_naive.cdr3[1] == "AAA"
+            @test result_naive.cdr3[1] == "BBB"
+
+            result_composite_naive = collapse_lineages(tie_df, Hardest();
+                tie_breaker=ByMostNaive() + ByVdjCount(),
+            )
+            @test nrow(result_composite_naive) == 1
+            @test result_composite_naive.cdr3[1] == "BBB"
+
+            result_composite_vdj = collapse_lineages(tie_df, Hardest();
+                tie_breaker=ByVdjCount() + ByMostNaive(),
+            )
+            @test nrow(result_composite_vdj) == 1
+            @test result_composite_vdj.cdr3[1] == "AAA"
 
             atol_df = DataFrame(
                 d_region = ["D1", "D1", "D1", "D2", "D2"],

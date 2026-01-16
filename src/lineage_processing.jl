@@ -207,7 +207,7 @@ Collapse lineages in a DataFrame based on clone frequency and a specified collap
 - `tie_breaker::TieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
   share the maximum `clone_frequency` under `Hardest()`. Options: `ByVdjCount()`
   (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`,
-  `ByMostNaive()`.
+  `ByMostNaive()`. Compose rules with `+` (e.g. `ByVdjCount() + ByMostNaive()`).
 - `ByVdjCount()` requires a `vdj_nt` column (derived in `preprocess_data`
   when `v_sequence_start` and `j_sequence_end` are available).
 - `ByMostNaive()` requires `v_identity` and `j_identity` columns.
@@ -236,9 +236,9 @@ function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
         makeunique=true)
 
-    if tie_breaker isa ByVdjCount
+    if any(col == :vdj_count for (col, _) in tie_breaker.criteria)
         if :vdj_nt ∉ propertynames(df_with_freq)
-            throw(ArgumentError("vdj_nt column is required for ByVdjCount(). " *
+            throw(ArgumentError("vdj_nt column is required for tie_breakers using vdj_count. " *
                 "Provide vdj_nt or preprocess with v_sequence_start and j_sequence_end."))
         end
         df_with_freq = _add_vdj_count(df_with_freq)
@@ -262,7 +262,7 @@ function _collapse_by_strategy(df_with_freq::DataFrame, ::Hardest;
             tie_mask = group.clone_frequency .== max_freq
         end
         candidates = group[tie_mask, :]
-        if nrow(candidates) == 1 || tie_breaker isa ByFirst
+        if nrow(candidates) == 1 || isempty(tie_breaker.criteria)
             return candidates[1:1, :]
         end
         return select_hardest_candidate(candidates, tie_breaker)

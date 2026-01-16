@@ -1,49 +1,48 @@
-abstract type TieBreaker end
-
-struct ByVdjCount <: TieBreaker end
-struct ByCdr3Count <: TieBreaker end
-struct BySequenceCount <: TieBreaker end
-struct ByLexicographic <: TieBreaker end
-struct ByFirst <: TieBreaker end
-struct ByMostNaive <: TieBreaker end
-
-function select_hardest_candidate(candidates::DataFrame, ::ByVdjCount)::DataFrame
-    if :vdj_count ∉ propertynames(candidates)
-        throw(ArgumentError("vdj_count column is required for ByVdjCount()."))
+struct TieBreaker
+    criteria::Vector{Pair{Symbol,Bool}}
+    function TieBreaker(criteria::Vector{Pair{Symbol,Bool}})
+        seen = Set{Symbol}()
+        filtered = Pair{Symbol,Bool}[]
+        for (col, desc) in criteria
+            if col ∉ seen
+                push!(filtered, col => desc)
+                push!(seen, col)
+            end
+        end
+        return new(filtered)
     end
-    sorted = sort(candidates, [:vdj_count, :cdr3], rev=[true, false])
-    return sorted[1:1, :]
 end
 
-function select_hardest_candidate(candidates::DataFrame, ::ByCdr3Count)::DataFrame
-    if :cdr3_count ∉ propertynames(candidates)
-        throw(ArgumentError("cdr3_count column is required for ByCdr3Count()."))
+Base.:+(a::TieBreaker, b::TieBreaker) = TieBreaker(vcat(a.criteria, b.criteria))
+
+ByVdjCount() = TieBreaker([:vdj_count => true, :cdr3 => false])
+ByCdr3Count() = TieBreaker([:cdr3_count => true, :cdr3 => false])
+BySequenceCount() = TieBreaker([:sequence_count => true, :cdr3 => false])
+ByLexicographic() = TieBreaker([:cdr3 => false])
+ByFirst() = TieBreaker(Pair{Symbol,Bool}[])
+ByMostNaive() = TieBreaker([
+    :v_identity => true,
+    :j_identity => true,
+    :vdj_count => true,
+    :cdr3_count => true,
+    :cdr3 => false,
+])
+
+function select_hardest_candidate(candidates::DataFrame, tie_breaker::TieBreaker)::DataFrame
+    if isempty(tie_breaker.criteria)
+        return candidates[1:1, :]
     end
-    sorted = sort(candidates, [:cdr3_count, :cdr3], rev=[true, false])
-    return sorted[1:1, :]
-end
 
-function select_hardest_candidate(candidates::DataFrame, ::BySequenceCount)::DataFrame
-    if :sequence_count ∉ propertynames(candidates)
-        throw(ArgumentError("sequence_count column is required for BySequenceCount()."))
+    missing_cols = [
+        col for (col, _) in tie_breaker.criteria
+        if col ∉ propertynames(candidates)
+    ]
+    if !isempty(missing_cols)
+        throw(ArgumentError("Missing required columns for tie breaking: $(join(string.(missing_cols), ", "))."))
     end
-    sorted = sort(candidates, [:sequence_count, :cdr3], rev=[true, false])
-    return sorted[1:1, :]
-end
 
-function select_hardest_candidate(candidates::DataFrame, ::ByLexicographic)::DataFrame
-    sorted = sort(candidates, :cdr3)
-    return sorted[1:1, :]
-end
-
-function select_hardest_candidate(candidates::DataFrame, ::ByFirst)::DataFrame
-    return candidates[1:1, :]
-end
-
-function select_hardest_candidate(candidates::DataFrame, ::ByMostNaive)::DataFrame
-    if :v_identity ∉ propertynames(candidates) || :j_identity ∉ propertynames(candidates)
-        throw(ArgumentError("v_identity and j_identity columns are required for ByMostNaive()."))
-    end
-    sorted = sort(candidates, [:v_identity, :j_identity, :cdr3], rev=[true, true, false])
+    cols = [col for (col, _) in tie_breaker.criteria]
+    revs = [desc for (_, desc) in tie_breaker.criteria]
+    sorted = sort(candidates, cols, rev=revs)
     return sorted[1:1, :]
 end
