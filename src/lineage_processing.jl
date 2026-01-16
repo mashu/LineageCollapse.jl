@@ -193,7 +193,9 @@ function process_lineages(df::DataFrame;
 end
 
 """
-    collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest())
+    collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
+                      tie_breaker::TieBreaker=ByVdjCount(),
+                      tie_atol::Real=0.0)
 
 Collapse lineages in a DataFrame based on clone frequency and a specified collapse strategy.
 
@@ -202,6 +204,13 @@ Collapse lineages in a DataFrame based on clone frequency and a specified collap
 - `strategy::CollapseStrategy=Hardest()`: Strategy for collapsing lineages.
   - `Hardest()` selects only the most frequent clone per lineage.
   - `Soft(cutoff)` keeps clones whose frequency within a lineage is at or above `cutoff`.
+- `tie_breaker::TieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
+  share the maximum `clone_frequency` under `Hardest()`. Options: `ByVdjCount()`
+  (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`.
+- `ByVdjCount()` requires a `vdj_nt` column (derived in `preprocess_data`
+  when `v_sequence_start` and `j_sequence_end` are available).
+- `tie_atol::Real=0.0`: Absolute tolerance for considering clone frequencies equal
+  when identifying ties.
 
 # Returns
 - `DataFrame`: Collapsed lineage data containing a new column:
@@ -216,32 +225,112 @@ lineages = DataFrame(...)  # Your input data
 collapsed = collapse_lineages(lineages, Soft(0.1))
 ```
 """
-function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest())
-    grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
-    counted = combine(grouped, nrow => :sequence_count)
-
-    lineage_grouped = groupby(counted, :lineage_id)
-    with_frequency = transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :clone_frequency)
+function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
+                           tie_breaker::TieBreaker=ByVdjCount(),
+                           tie_atol::Real=0.0)
+    with_frequency = _clone_frequency_table(df)
 
     df_with_freq = leftjoin(df, with_frequency,
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
         makeunique=true)
 
-    collapsed = _collapse_by_strategy(df_with_freq, strategy)
+    if tie_breaker isa ByVdjCount
+        if :vdj_nt ∉ propertynames(df_with_freq)
+            throw(ArgumentError("vdj_nt column is required for ByVdjCount(). " *
+                "Provide vdj_nt or preprocess with v_sequence_start and j_sequence_end."))
+        end
+        df_with_freq = _add_vdj_count(df_with_freq)
+    end
+
+    collapsed = _collapse_by_strategy(df_with_freq, strategy;
+        tie_breaker=tie_breaker,
+        tie_atol=tie_atol)
 
     return collapsed
 end
 
-function _collapse_by_strategy(df_with_freq::DataFrame, ::Hardest)
+function _collapse_by_strategy(df_with_freq::DataFrame, ::Hardest;
+                               tie_breaker::TieBreaker=ByVdjCount(),
+                               tie_atol::Real=0.0)
     return combine(groupby(df_with_freq, :lineage_id)) do group
-        row_idx = argmax(group.clone_frequency)  # Single highest frequency
-        group[row_idx:row_idx, :]
+        max_freq = maximum(group.clone_frequency)
+        if tie_atol > 0
+            tie_mask = abs.(group.clone_frequency .- max_freq) .<= tie_atol
+        else
+            tie_mask = group.clone_frequency .== max_freq
+        end
+        candidates = group[tie_mask, :]
+        if nrow(candidates) == 1 || tie_breaker isa ByFirst
+            return candidates[1:1, :]
+        end
+        return select_hardest_candidate(candidates, tie_breaker)
     end
 end
 
-function _collapse_by_strategy(df_with_freq::DataFrame, strategy::Soft)
+function _collapse_by_strategy(df_with_freq::DataFrame, strategy::Soft;
+                               tie_breaker::TieBreaker=ByVdjCount(),
+                               tie_atol::Real=0.0)
     return combine(groupby(df_with_freq, :lineage_id)) do group
         group[group.clone_frequency .>= strategy.cutoff, :]
+    end
+end
+
+function _clone_frequency_table(df::DataFrame)::DataFrame
+    grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
+    counted = combine(grouped, nrow => :sequence_count)
+    lineage_grouped = groupby(counted, :lineage_id)
+    return transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :clone_frequency)
+end
+
+
+function _add_vdj_count(df::DataFrame)::DataFrame
+    weight_col = :count in propertynames(df) ? :count : nothing
+    grouped = if weight_col === nothing
+        combine(
+            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
+            nrow => :vdj_count,
+        )
+    else
+        combine(
+            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
+            :count => sum => :vdj_count,
+        )
+    end
+
+    by_clone = combine(
+        groupby(grouped, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3]),
+        :vdj_count => maximum => :vdj_count,
+    )
+
+    return leftjoin(df, by_clone,
+        on=[:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3],
+        makeunique=true)
+end
+
+"""
+    hardest_tie_summary(df::DataFrame; atol::Real=0.0)::DataFrame
+
+Summarize lineages where multiple clones share the maximum clone frequency.
+Returns a DataFrame with one row per lineage, including the count of tied clones
+and the CDR3s involved in the tie. Set `atol` to a positive value to treat
+frequencies within that tolerance as equal.
+"""
+function hardest_tie_summary(df::DataFrame; atol::Real=0.0)::DataFrame
+    with_frequency = _clone_frequency_table(df)
+    return combine(groupby(with_frequency, :lineage_id)) do group
+        max_freq = maximum(group.clone_frequency)
+        if atol > 0
+            tie_mask = abs.(group.clone_frequency .- max_freq) .<= atol
+        else
+            tie_mask = group.clone_frequency .== max_freq
+        end
+        tied_cdr3s = group.cdr3[tie_mask]
+        (
+            max_clone_frequency = max_freq,
+            hardest_tie_count = length(tied_cdr3s),
+            hardest_tied = length(tied_cdr3s) > 1,
+            hardest_tied_cdr3s = [tied_cdr3s],
+        )
     end
 end
 

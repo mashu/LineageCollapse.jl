@@ -9,12 +9,15 @@ module LineageCollapse
     using LinearAlgebra
 
     export load_data, preprocess_data, deduplicate_data, process_lineages, collapse_lineages
-    export DistanceMetric, ClusteringMethod, CollapseStrategy
+    export hardest_tie_summary
+    export DistanceMetric, ClusteringMethod, CollapseStrategy, TieBreaker
     export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
     export Hardest, Soft
+    export ByVdjCount, ByCdr3Count, BySequenceCount, ByLexicographic, ByFirst
     export compute_distance, compute_pairwise_distance, perform_clustering
 
     include("data_loading.jl")
     include("preprocessing.jl")
+    include("tie_breaking.jl")
     include("lineage_processing.jl")
 end

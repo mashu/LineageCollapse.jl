@@ -155,6 +155,7 @@ using LinearAlgebra
             j_call_first = ["J1", "J1", "J1", "J2", "J2", "J2"],
             v_call_first = ["V1", "V1", "V1", "V2", "V2", "V2"],
             cdr3 = ["ATCG", "ATCG", "ATTG", "GCTA", "GCTA", "GCTT"],
+            vdj_nt = ["VDJ1", "VDJ1", "VDJ2", "VDJ3", "VDJ3", "VDJ4"],
             count = [5, 3, 2, 4, 4, 2]
         )
 
@@ -190,6 +191,7 @@ using LinearAlgebra
                 j_call_first = ["J1", "J2"],
                 v_call_first = ["V1", "V2"],
                 cdr3 = ["ATCG", "GCTA"],
+                vdj_nt = ["VDJ1", "VDJ2"],
                 count = [1, 1]
             )
             result = collapse_lineages(single_seq_df, Hardest())
@@ -203,11 +205,51 @@ using LinearAlgebra
                 j_call_first = ["J1", "J1", "J1"],
                 v_call_first = ["V1", "V1", "V1"],
                 cdr3 = ["ATCG", "ATTG", "ATAG"],
+                vdj_nt = ["VDJ1", "VDJ2", "VDJ3"],
                 count = [1, 1, 1]
             )
             result = collapse_lineages(equal_freq_df, Hardest())
             @test nrow(result) == 1
             @test result.cdr3[1] in ["ATCG", "ATTG", "ATAG"]
+        end
+
+        @testset "Hardest tie-breaking" begin
+            tie_df = DataFrame(
+                d_region = ["D1", "D1", "D2", "D2"],
+                lineage_id = [1, 1, 1, 1],
+                j_call_first = ["J1", "J1", "J1", "J1"],
+                v_call_first = ["V1", "V1", "V1", "V1"],
+                cdr3 = ["AAA", "AAA", "BBB", "BBB"],
+                vdj_nt = ["VDJ1", "VDJ1", "VDJ2", "VDJ3"],
+                cdr3_count = [2, 2, 1, 1],
+            )
+
+            result_default = collapse_lineages(tie_df, Hardest())
+            @test nrow(result_default) == 1
+            @test result_default.cdr3[1] == "AAA"
+
+            result_lex = collapse_lineages(tie_df, Hardest(); tie_breaker=ByLexicographic())
+            @test nrow(result_lex) == 1
+            @test result_lex.cdr3[1] == "AAA"
+
+            result_cdr3 = collapse_lineages(tie_df, Hardest(); tie_breaker=ByCdr3Count())
+            @test nrow(result_cdr3) == 1
+            @test result_cdr3.cdr3[1] == "AAA"
+
+            atol_df = DataFrame(
+                d_region = ["D1", "D1", "D1", "D2", "D2"],
+                lineage_id = [1, 1, 1, 1, 1],
+                j_call_first = ["J1", "J1", "J1", "J1", "J1"],
+                v_call_first = ["V1", "V1", "V1", "V1", "V1"],
+                cdr3 = ["AAA", "AAA", "AAA", "BBB", "BBB"],
+                vdj_nt = ["VDJ1", "VDJ2", "VDJ2", "VDJ3", "VDJ3"],
+            )
+            result_count = collapse_lineages(atol_df, Hardest();
+                tie_breaker=BySequenceCount(),
+                tie_atol=0.25,
+            )
+            @test nrow(result_count) == 1
+            @test result_count.cdr3[1] == "AAA"
         end
 
         @testset "Invalid inputs" begin

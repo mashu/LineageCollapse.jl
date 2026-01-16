@@ -55,6 +55,25 @@ function preprocess_data(df::DataFrame;
         ByRow((seq, v_end, j_start) -> seq[v_end+1:j_start]) => :d_region
     )
 
+    # Derive VDJ_nt if missing and coordinates are available (MIAIRR input)
+    if !(:vdj_nt in propertynames(df)) &&
+       (:v_sequence_start in propertynames(df)) &&
+       (:j_sequence_end in propertynames(df)) &&
+       (:sequence in propertynames(df))
+        transform!(df,
+            [:sequence, :v_sequence_start, :j_sequence_end] =>
+            ByRow((seq, v_start, j_end) -> begin
+                if ismissing(seq) || ismissing(v_start) || ismissing(j_end)
+                    return missing
+                end
+                if !(1 <= v_start <= j_end <= length(seq))
+                    return missing
+                end
+                return seq[v_start:j_end]
+            end) => :vdj_nt
+        )
+    end
+
     # Filter based on D region length if specified
     if !isnothing(min_d_region_length)
         df = filter(row -> length(row.d_region) > min_d_region_length, df)

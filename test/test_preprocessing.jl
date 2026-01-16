@@ -13,6 +13,8 @@ using LineageCollapse
             cdr3 = ["CGAT", "CGAT", missing, "CTAT", "CGAT"],
             v_sequence_end = [3, 3, 3, 3, 3],
             j_sequence_start = [6, 6, 6, 6, 6],
+            v_sequence_start = [1, 1, 1, 1, 1],
+            j_sequence_end = [8, 8, 8, 8, 8],
             stop_codon = [false, false, false, true, false],
             barcode = ["BC1", "BC2", "BC3", "BC4", "BC5"]
         )
@@ -26,11 +28,13 @@ using LineageCollapse
             @test :v_call_first in propertynames(result)
             @test :j_call_first in propertynames(result)
             @test :cdr3_length in propertynames(result)
+            @test :vdj_nt in propertynames(result)
 
             @test all(result.d_region .== "GAT")
             @test result.v_call_first == ["IGHV1-1*01", "IGHV1-2*01", "IGHV1-1*01"]
             @test result.j_call_first == ["IGHJ1*01", "IGHJ2*01", "IGHJ1*01"]
             @test all(result.cdr3_length .== 4)
+            @test result.vdj_nt == result.sequence
         end
 
         @testset "With min_d_region_length" begin
