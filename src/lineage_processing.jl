@@ -206,9 +206,11 @@ Collapse lineages in a DataFrame based on clone frequency and a specified collap
   - `Soft(cutoff)` keeps clones whose frequency within a lineage is at or above `cutoff`.
 - `tie_breaker::TieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
   share the maximum `clone_frequency` under `Hardest()`. Options: `ByVdjCount()`
-  (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`.
+  (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`,
+  `ByMostNaive()`.
 - `ByVdjCount()` requires a `vdj_nt` column (derived in `preprocess_data`
   when `v_sequence_start` and `j_sequence_end` are available).
+- `ByMostNaive()` requires `v_identity` and `j_identity` columns.
 - `tie_atol::Real=0.0`: Absolute tolerance for considering clone frequencies equal
   when identifying ties.
 

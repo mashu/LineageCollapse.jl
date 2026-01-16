@@ -5,6 +5,7 @@ struct ByCdr3Count <: TieBreaker end
 struct BySequenceCount <: TieBreaker end
 struct ByLexicographic <: TieBreaker end
 struct ByFirst <: TieBreaker end
+struct ByMostNaive <: TieBreaker end
 
 function select_hardest_candidate(candidates::DataFrame, ::ByVdjCount)::DataFrame
     if :vdj_count ∉ propertynames(candidates)
@@ -37,4 +38,12 @@ end
 
 function select_hardest_candidate(candidates::DataFrame, ::ByFirst)::DataFrame
     return candidates[1:1, :]
+end
+
+function select_hardest_candidate(candidates::DataFrame, ::ByMostNaive)::DataFrame
+    if :v_identity ∉ propertynames(candidates) || :j_identity ∉ propertynames(candidates)
+        throw(ArgumentError("v_identity and j_identity columns are required for ByMostNaive()."))
+    end
+    sorted = sort(candidates, [:v_identity, :j_identity, :cdr3], rev=[true, true, false])
+    return sorted[1:1, :]
 end

@@ -13,7 +13,7 @@ module LineageCollapse
     export DistanceMetric, ClusteringMethod, CollapseStrategy, TieBreaker
     export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
     export Hardest, Soft
-    export ByVdjCount, ByCdr3Count, BySequenceCount, ByLexicographic, ByFirst
+    export ByVdjCount, ByCdr3Count, BySequenceCount, ByLexicographic, ByFirst, ByMostNaive
     export compute_distance, compute_pairwise_distance, perform_clustering
 
     include("data_loading.jl")

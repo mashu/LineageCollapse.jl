@@ -222,6 +222,8 @@ using LinearAlgebra
                 cdr3 = ["AAA", "AAA", "BBB", "BBB"],
                 vdj_nt = ["VDJ1", "VDJ1", "VDJ2", "VDJ3"],
                 cdr3_count = [2, 2, 1, 1],
+                v_identity = [0.99, 0.99, 0.98, 0.98],
+                j_identity = [0.97, 0.97, 0.99, 0.99],
             )
 
             result_default = collapse_lineages(tie_df, Hardest())
@@ -235,6 +237,10 @@ using LinearAlgebra
             result_cdr3 = collapse_lineages(tie_df, Hardest(); tie_breaker=ByCdr3Count())
             @test nrow(result_cdr3) == 1
             @test result_cdr3.cdr3[1] == "AAA"
+
+            result_naive = collapse_lineages(tie_df, Hardest(); tie_breaker=ByMostNaive())
+            @test nrow(result_naive) == 1
+            @test result_naive.cdr3[1] == "AAA"
 
             atol_df = DataFrame(
                 d_region = ["D1", "D1", "D1", "D2", "D2"],
