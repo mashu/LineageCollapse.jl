@@ -274,5 +274,76 @@ using LinearAlgebra
             @test_throws ArgumentError Soft(-0.1)
             @test_throws ArgumentError Soft(1.1)
         end
+
+        @testset "ByMostCommonVdjNt tie-breaker (igdiscover compatible)" begin
+            # Test case: multiple vdj_nt sequences with different counts
+            # igdiscover selects based on total count for each vdj_nt
+            vdj_df = DataFrame(
+                d_region = ["D1", "D1", "D1", "D1", "D1"],
+                lineage_id = [1, 1, 1, 1, 1],
+                j_call_first = ["J1", "J1", "J1", "J1", "J1"],
+                v_call_first = ["V1", "V1", "V1", "V1", "V1"],
+                cdr3 = ["AAA", "AAA", "AAA", "BBB", "BBB"],
+                vdj_nt = ["VDJ_A", "VDJ_A", "VDJ_B", "VDJ_C", "VDJ_C"],
+                count = [5, 3, 10, 4, 4],  # VDJ_A total=8, VDJ_B=10, VDJ_C=8
+                extra_col = ["a1", "a2", "b1", "c1", "c2"]
+            )
+
+            result = collapse_lineages(vdj_df, Hardest(); tie_breaker=ByMostCommonVdjNt())
+            @test nrow(result) == 1
+            # Should select VDJ_B which has the highest total count (10)
+            @test result.vdj_nt[1] == "VDJ_B"
+            @test result.extra_col[1] == "b1"  # Preserves the row's columns
+        end
+
+        @testset "Hardest strategy automatically aggregates count and nVDJ_nt" begin
+            agg_df = DataFrame(
+                d_region = ["D1", "D1", "D1", "D2", "D2"],
+                lineage_id = [1, 1, 1, 2, 2],
+                j_call_first = ["J1", "J1", "J1", "J2", "J2"],
+                v_call_first = ["V1", "V1", "V1", "V2", "V2"],
+                cdr3 = ["AAA", "AAA", "BBB", "CCC", "CCC"],
+                vdj_nt = ["VDJ1", "VDJ2", "VDJ3", "VDJ4", "VDJ5"],
+                count = [5, 3, 2, 4, 6]
+            )
+
+            result = collapse_lineages(agg_df, Hardest(); tie_breaker=ByMostCommonVdjNt())
+
+            @test nrow(result) == 2
+            # Lineage 1: count should be 5+3+2=10, nVDJ_nt should be 3
+            lin1 = result[result.lineage_id .== 1, :]
+            @test lin1.count[1] == 10
+            @test lin1.nVDJ_nt[1] == 3
+
+            # Lineage 2: count should be 4+6=10, nVDJ_nt should be 2
+            lin2 = result[result.lineage_id .== 2, :]
+            @test lin2.count[1] == 10
+            @test lin2.nVDJ_nt[1] == 2
+        end
+
+        @testset "ByMostCommonVdjNt matches igdiscover representative selection" begin
+            # This test mimics igdiscover's representative() function behavior:
+            # When n > 2: pick the row with the most common VDJ_nt (count-weighted)
+            igdiscover_df = DataFrame(
+                d_region = ["D1", "D1", "D1", "D1"],
+                lineage_id = [1, 1, 1, 1],
+                j_call_first = ["J1", "J1", "J1", "J1"],
+                v_call_first = ["V1", "V1", "V1", "V1"],
+                cdr3 = ["AAA", "AAA", "BBB", "BBB"],
+                vdj_nt = ["MOST_COMMON", "MOST_COMMON", "LESS_COMMON", "LESS_COMMON"],
+                count = [10, 5, 3, 2],  # MOST_COMMON=15, LESS_COMMON=5
+                V_errors = [1, 2, 3, 4],  # Should preserve value from selected row
+                J_errors = [10, 20, 30, 40]
+            )
+
+            result = collapse_lineages(igdiscover_df, Hardest(); tie_breaker=ByMostCommonVdjNt())
+
+            @test nrow(result) == 1
+            @test result.vdj_nt[1] == "MOST_COMMON"
+            @test result.V_errors[1] == 1  # First row with MOST_COMMON vdj_nt
+            @test result.J_errors[1] == 10
+            @test result.count[1] == 20  # Sum of all counts
+            @test result.nVDJ_nt[1] == 2  # Two unique VDJ_nt sequences
+        end
     end
 end

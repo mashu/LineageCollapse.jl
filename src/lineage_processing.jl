@@ -24,6 +24,221 @@ end
 Soft(cutoff::AbstractFloat) = Soft{typeof(cutoff)}(cutoff)
 Soft(cutoff::Integer) = Soft(float(cutoff))
 
+#=
+    Lineage Aggregation
+
+    Multiple dispatch handles whether to aggregate based on strategy type.
+    Hardest() aggregates count and computes nVDJ_nt.
+    Soft() does not aggregate.
+=#
+
+struct LineageAggregates
+    data::DataFrame
+end
+
+struct NoAggregates end
+
+"""
+    compute_aggregates(::Hardest, df::AbstractDataFrame) -> LineageAggregates
+
+Compute aggregated statistics for each lineage when using Hardest strategy.
+"""
+function compute_aggregates(::Hardest, df::AbstractDataFrame)
+    has_count = :count ∈ propertynames(df)
+    has_vdj_nt = :vdj_nt ∈ propertynames(df)
+    
+    agg = combine(groupby(df, :lineage_id)) do group
+        total_count = has_count ? sum(skipmissing(group.count)) : nrow(group)
+        n_vdj_nt = has_vdj_nt ? length(unique(skipmissing(group.vdj_nt))) : missing
+        (lineage_count_sum = total_count, nVDJ_nt = n_vdj_nt)
+    end
+    return LineageAggregates(agg)
+end
+
+"""
+    compute_aggregates(::Soft, ::AbstractDataFrame) -> NoAggregates
+
+Soft strategy does not aggregate - returns sentinel type.
+"""
+compute_aggregates(::Soft, ::AbstractDataFrame) = NoAggregates()
+
+"""
+    apply_aggregates(collapsed::DataFrame, agg::LineageAggregates) -> DataFrame
+
+Apply precomputed aggregates to the collapsed DataFrame.
+"""
+function apply_aggregates(collapsed::DataFrame, agg::LineageAggregates)
+    result = leftjoin(collapsed, agg.data, on=:lineage_id)
+    
+    if :count ∈ propertynames(result) && :lineage_count_sum ∈ propertynames(result)
+        result.count = result.lineage_count_sum
+        select!(result, Not(:lineage_count_sum))
+    elseif :lineage_count_sum ∈ propertynames(result)
+        rename!(result, :lineage_count_sum => :count)
+    end
+    
+    return result
+end
+
+"""
+    apply_aggregates(collapsed::DataFrame, ::NoAggregates) -> DataFrame
+
+No-op when there are no aggregates to apply.
+"""
+apply_aggregates(collapsed::DataFrame, ::NoAggregates) = collapsed
+
+#=
+    Clone Frequency Computation
+=#
+
+"""
+    clone_frequency_table(df::DataFrame) -> DataFrame
+
+Compute clone frequency for each unique clone within each lineage.
+"""
+function clone_frequency_table(df::DataFrame)
+    grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
+    counted = combine(grouped, nrow => :sequence_count)
+    lineage_grouped = groupby(counted, :lineage_id)
+    return transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :clone_frequency)
+end
+
+#=
+    VDJ Count Computation
+=#
+
+"""
+    add_vdj_count(df::DataFrame) -> DataFrame
+
+Add vdj_count column showing the count of each unique VDJ sequence within each clone.
+"""
+function add_vdj_count(df::DataFrame)
+    weight_col = :count ∈ propertynames(df) ? :count : nothing
+    
+    grouped = if weight_col === nothing
+        combine(
+            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
+            nrow => :vdj_count,
+        )
+    else
+        combine(
+            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
+            :count => sum => :vdj_count,
+        )
+    end
+
+    by_clone = combine(
+        groupby(grouped, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3]),
+        :vdj_count => maximum => :vdj_count,
+    )
+
+    return leftjoin(df, by_clone,
+        on=[:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3],
+        makeunique=true)
+end
+
+#=
+    Group Collapsing - Multiple Dispatch on Strategy
+=#
+
+"""
+    collapse_group(::Hardest, group::AbstractDataFrame, tie_breaker::AbstractTieBreaker, tie_atol::Real)
+
+Collapse a lineage group using Hardest strategy - select the most frequent clone.
+"""
+function collapse_group(::Hardest, group::AbstractDataFrame, tie_breaker::AbstractTieBreaker, tie_atol::Real)
+    max_freq = maximum(group.clone_frequency)
+    
+    candidates = if tie_atol > 0
+        group[abs.(group.clone_frequency .- max_freq) .<= tie_atol, :]
+    else
+        group[group.clone_frequency .== max_freq, :]
+    end
+    
+    return select_representative(tie_breaker, group, candidates)
+end
+
+"""
+    collapse_group(strategy::Soft, group::AbstractDataFrame, ::AbstractTieBreaker, ::Real)
+
+Collapse a lineage group using Soft strategy - keep clones above frequency cutoff.
+"""
+function collapse_group(strategy::Soft, group::AbstractDataFrame, ::AbstractTieBreaker, ::Real)
+    return group[group.clone_frequency .>= strategy.cutoff, :]
+end
+
+#=
+    Representative Selection - Multiple Dispatch on TieBreaker
+=#
+
+"""
+    select_representative(::MostCommonVdjNtTieBreaker, group::AbstractDataFrame, ::AbstractDataFrame)
+
+Select representative using igdiscover's logic: most common VDJ_nt weighted by count.
+Uses the entire group (not just frequency-tied candidates) to match igdiscover behavior.
+"""
+function select_representative(::MostCommonVdjNtTieBreaker, group::AbstractDataFrame, ::AbstractDataFrame)
+    if :vdj_nt ∉ propertynames(group)
+        throw(ArgumentError("vdj_nt column is required for ByMostCommonVdjNt() tie-breaker."))
+    end
+    
+    count_col = :count ∈ propertynames(group) ? group.count : ones(Int, nrow(group))
+    
+    vdj_counts = Dict{String,Int}()
+    for (vdj_nt, cnt) in zip(group.vdj_nt, count_col)
+        if !ismissing(vdj_nt)
+            vdj_counts[vdj_nt] = get(vdj_counts, vdj_nt, 0) + cnt
+        end
+    end
+    
+    if isempty(vdj_counts)
+        return group[1:1, :]
+    end
+    
+    most_common_vdj_nt = argmax(vdj_counts)
+    
+    for i in 1:nrow(group)
+        if !ismissing(group.vdj_nt[i]) && group.vdj_nt[i] == most_common_vdj_nt
+            return group[i:i, :]
+        end
+    end
+    
+    return group[1:1, :]
+end
+
+"""
+    select_representative(tie_breaker::TieBreaker, ::AbstractDataFrame, candidates::AbstractDataFrame)
+
+Select representative from candidates using TieBreaker sorting criteria.
+"""
+function select_representative(tie_breaker::TieBreaker, ::AbstractDataFrame, candidates::AbstractDataFrame)
+    return select_hardest_candidate(candidates, tie_breaker)
+end
+
+#=
+    VDJ_NT Requirement Check - Multiple Dispatch
+=#
+
+"""
+    requires_vdj_nt(::MostCommonVdjNtTieBreaker) -> Bool
+"""
+requires_vdj_nt(::MostCommonVdjNtTieBreaker) = true
+
+"""
+    requires_vdj_nt(tie_breaker::TieBreaker) -> Bool
+"""
+requires_vdj_nt(tie_breaker::TieBreaker) = any(col == :vdj_count for (col, _) in tie_breaker.criteria)
+
+"""
+    requires_vdj_count(::MostCommonVdjNtTieBreaker) -> Bool
+"""
+requires_vdj_count(::MostCommonVdjNtTieBreaker) = false
+
+"""
+    requires_vdj_count(tie_breaker::TieBreaker) -> Bool
+"""
+requires_vdj_count(tie_breaker::TieBreaker) = any(col == :vdj_count for (col, _) in tie_breaker.criteria)
+
 """
     HierarchicalClustering(cutoff::Float32)
 
@@ -194,119 +409,80 @@ end
 
 """
     collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
-                      tie_breaker::TieBreaker=ByVdjCount(),
+                      tie_breaker::AbstractTieBreaker=ByVdjCount(),
                       tie_atol::Real=0.0)
 
 Collapse lineages in a DataFrame based on clone frequency and a specified collapse strategy.
+
+When using `Hardest()` strategy (one representative per lineage), the function automatically:
+- Sums the `count` column across all members of each lineage
+- Adds `nVDJ_nt` column with the number of unique VDJ_nt sequences per lineage
+
+This matches igdiscover's clonotypes output format.
 
 # Arguments
 - `df::DataFrame`: Input DataFrame containing lineage data. Must have columns [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3].
 - `strategy::CollapseStrategy=Hardest()`: Strategy for collapsing lineages.
   - `Hardest()` selects only the most frequent clone per lineage.
   - `Soft(cutoff)` keeps clones whose frequency within a lineage is at or above `cutoff`.
-- `tie_breaker::TieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
+- `tie_breaker::AbstractTieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
   share the maximum `clone_frequency` under `Hardest()`. Options: `ByVdjCount()`
   (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`,
-  `ByMostNaive()`. Compose rules with `+` (e.g. `ByVdjCount() + ByMostNaive()`).
+  `ByMostNaive()`, `ByMostCommonVdjNt()`. Compose rules with `+` (e.g. `ByVdjCount() + ByMostNaive()`).
 - `ByVdjCount()` requires a `vdj_nt` column (derived in `preprocess_data`
   when `v_sequence_start` and `j_sequence_end` are available).
 - `ByMostNaive()` requires `v_identity` and `j_identity` columns.
+- `ByMostCommonVdjNt()` matches igdiscover's clonotypes behavior: selects the row
+  with the most common `vdj_nt` weighted by `count`. Requires `vdj_nt` column.
 - `tie_atol::Real=0.0`: Absolute tolerance for considering clone frequencies equal
   when identifying ties.
 
 # Returns
-- `DataFrame`: Collapsed lineage data containing a new column:
-  - `clone_frequency`: Represents the relative frequency of each clone within its lineage,
-    calculated as (count of specific clone) / (total sequences in lineage).
-    A clone is defined by unique combination of D region, J call, V call, and CDR3 sequence.
-    Values range from 0.0 to 1.0, with higher values indicating more abundant clones in the lineage.
+- `DataFrame`: Collapsed lineage data containing:
+  - `clone_frequency`: Relative frequency of each clone within its lineage (0.0 to 1.0).
+  - For `Hardest()` strategy:
+    - `count`: Sum of counts across all lineage members
+    - `nVDJ_nt`: Number of unique VDJ_nt sequences in the lineage
 
 # Example
 ```julia
 lineages = DataFrame(...)  # Your input data
+
+# Default collapse (aggregates count, adds nVDJ_nt)
+collapsed = collapse_lineages(lineages, Hardest())
+
+# To match igdiscover's clonotypes output exactly:
+collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByMostCommonVdjNt())
+
+# Soft collapse (keeps multiple clones per lineage)
 collapsed = collapse_lineages(lineages, Soft(0.1))
 ```
 """
 function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
-                           tie_breaker::TieBreaker=ByVdjCount(),
+                           tie_breaker::AbstractTieBreaker=ByVdjCount(),
                            tie_atol::Real=0.0)
-    with_frequency = _clone_frequency_table(df)
+    with_frequency = clone_frequency_table(df)
 
     df_with_freq = leftjoin(df, with_frequency,
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
         makeunique=true)
 
-    if any(col == :vdj_count for (col, _) in tie_breaker.criteria)
-        if :vdj_nt ∉ propertynames(df_with_freq)
-            throw(ArgumentError("vdj_nt column is required for tie_breakers using vdj_count. " *
-                "Provide vdj_nt or preprocess with v_sequence_start and j_sequence_end."))
-        end
-        df_with_freq = _add_vdj_count(df_with_freq)
+    if requires_vdj_nt(tie_breaker) && :vdj_nt ∉ propertynames(df_with_freq)
+        throw(ArgumentError("vdj_nt column is required for the selected tie_breaker. " *
+            "Provide vdj_nt or preprocess with v_sequence_start and j_sequence_end."))
     end
 
-    collapsed = _collapse_by_strategy(df_with_freq, strategy;
-        tie_breaker=tie_breaker,
-        tie_atol=tie_atol)
-
-    return collapsed
-end
-
-function _collapse_by_strategy(df_with_freq::DataFrame, ::Hardest;
-                               tie_breaker::TieBreaker=ByVdjCount(),
-                               tie_atol::Real=0.0)
-    return combine(groupby(df_with_freq, :lineage_id)) do group
-        max_freq = maximum(group.clone_frequency)
-        if tie_atol > 0
-            tie_mask = abs.(group.clone_frequency .- max_freq) .<= tie_atol
-        else
-            tie_mask = group.clone_frequency .== max_freq
-        end
-        candidates = group[tie_mask, :]
-        if nrow(candidates) == 1 || isempty(tie_breaker.criteria)
-            return candidates[1:1, :]
-        end
-        return select_hardest_candidate(candidates, tie_breaker)
-    end
-end
-
-function _collapse_by_strategy(df_with_freq::DataFrame, strategy::Soft;
-                               tie_breaker::TieBreaker=ByVdjCount(),
-                               tie_atol::Real=0.0)
-    return combine(groupby(df_with_freq, :lineage_id)) do group
-        group[group.clone_frequency .>= strategy.cutoff, :]
-    end
-end
-
-function _clone_frequency_table(df::DataFrame)::DataFrame
-    grouped = groupby(df, [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3])
-    counted = combine(grouped, nrow => :sequence_count)
-    lineage_grouped = groupby(counted, :lineage_id)
-    return transform(lineage_grouped, :sequence_count => (x -> x ./ sum(x)) => :clone_frequency)
-end
-
-
-function _add_vdj_count(df::DataFrame)::DataFrame
-    weight_col = :count in propertynames(df) ? :count : nothing
-    grouped = if weight_col === nothing
-        combine(
-            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
-            nrow => :vdj_count,
-        )
-    else
-        combine(
-            groupby(df, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3, :vdj_nt]),
-            :count => sum => :vdj_count,
-        )
+    if requires_vdj_count(tie_breaker)
+        df_with_freq = add_vdj_count(df_with_freq)
     end
 
-    by_clone = combine(
-        groupby(grouped, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3]),
-        :vdj_count => maximum => :vdj_count,
-    )
+    aggregates = compute_aggregates(strategy, df_with_freq)
 
-    return leftjoin(df, by_clone,
-        on=[:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3],
-        makeunique=true)
+    collapsed = combine(groupby(df_with_freq, :lineage_id)) do group
+        collapse_group(strategy, group, tie_breaker, tie_atol)
+    end
+
+    return apply_aggregates(collapsed, aggregates)
 end
 
 """
@@ -318,7 +494,7 @@ and the CDR3s involved in the tie. Set `atol` to a positive value to treat
 frequencies within that tolerance as equal.
 """
 function hardest_tie_summary(df::DataFrame; atol::Real=0.0)::DataFrame
-    with_frequency = _clone_frequency_table(df)
+    with_frequency = clone_frequency_table(df)
     return combine(groupby(with_frequency, :lineage_id)) do group
         max_freq = maximum(group.clone_frequency)
         if atol > 0
@@ -335,5 +511,3 @@ function hardest_tie_summary(df::DataFrame; atol::Real=0.0)::DataFrame
         )
     end
 end
-
-# Backward-compatible API

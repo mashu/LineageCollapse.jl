@@ -1,4 +1,6 @@
-struct TieBreaker
+abstract type AbstractTieBreaker end
+
+struct TieBreaker <: AbstractTieBreaker
     criteria::Vector{Pair{Symbol,Bool}}
     function TieBreaker(criteria::Vector{Pair{Symbol,Bool}})
         seen = Set{Symbol}()
@@ -12,6 +14,19 @@ struct TieBreaker
         return new(filtered)
     end
 end
+
+"""
+    MostCommonVdjNtTieBreaker
+
+A tie-breaker that selects the representative based on the most common VDJ_nt
+sequence weighted by count, matching igdiscover's clonotypes behavior.
+
+For each lineage, it:
+1. Sums the `count` for each unique `vdj_nt` sequence
+2. Selects the `vdj_nt` with the highest total count
+3. Returns the first row with that `vdj_nt`
+"""
+struct MostCommonVdjNtTieBreaker <: AbstractTieBreaker end
 
 Base.:+(a::TieBreaker, b::TieBreaker) = TieBreaker(vcat(a.criteria, b.criteria))
 
@@ -28,7 +43,25 @@ ByMostNaive() = TieBreaker([
     :cdr3 => false,
 ])
 
-function select_hardest_candidate(candidates::DataFrame, tie_breaker::TieBreaker)::DataFrame
+"""
+    ByMostCommonVdjNt()
+
+Create a tie-breaker that matches igdiscover's clonotypes representative selection.
+
+Selects the representative by finding the VDJ_nt sequence with the highest total
+count across all members of the lineage, then returns the first row with that VDJ_nt.
+
+Requires columns: `vdj_nt`, `count`
+"""
+ByMostCommonVdjNt() = MostCommonVdjNtTieBreaker()
+
+"""
+    select_hardest_candidate(candidates::AbstractDataFrame, tie_breaker::TieBreaker)
+
+Select representative from candidates using TieBreaker sorting criteria.
+Returns the first row after sorting by the specified columns.
+"""
+function select_hardest_candidate(candidates::AbstractDataFrame, tie_breaker::TieBreaker)
     if isempty(tie_breaker.criteria)
         return candidates[1:1, :]
     end
