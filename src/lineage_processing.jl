@@ -182,6 +182,15 @@ function select_representative(::MostCommonVdjNtTieBreaker, group::AbstractDataF
         throw(ArgumentError("vdj_nt column is required for ByMostCommonVdjNt() tie-breaker."))
     end
     
+    n = nrow(group)
+    
+    # Match igdiscover's behavior: if n <= 2, just take the first row
+    # This ensures deterministic behavior when there are ties
+    if n <= 2
+        return group[1:1, :]
+    end
+    
+    # For n > 2, use most common VDJ_nt weighted by count
     count_col = :count ∈ propertynames(group) ? group.count : ones(Int, nrow(group))
     
     vdj_counts = Dict{String,Int}()
