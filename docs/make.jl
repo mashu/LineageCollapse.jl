@@ -20,4 +20,5 @@ makedocs(;
 deploydocs(;
     repo="github.com/mashu/LineageCollapse.jl",
     devbranch="main",
+    forcepush=true,
 )

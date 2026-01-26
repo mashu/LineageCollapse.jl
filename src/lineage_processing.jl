@@ -177,6 +177,16 @@ end
 Select representative using igdiscover's logic: most common VDJ_nt weighted by count.
 Uses the entire group (not just frequency-tied candidates) to match igdiscover behavior.
 """
+# Helper to remove original_index if present
+function remove_original_index(df::AbstractDataFrame)
+    if :original_index ∈ propertynames(df)
+        result = copy(df)
+        select!(result, Not(:original_index))
+        return result
+    end
+    return df
+end
+
 function select_representative(::MostCommonVdjNtTieBreaker, group::AbstractDataFrame, ::AbstractDataFrame)
     if :vdj_nt ∉ propertynames(group)
         throw(ArgumentError("vdj_nt column is required for ByMostCommonVdjNt() tie-breaker."))
@@ -185,34 +195,49 @@ function select_representative(::MostCommonVdjNtTieBreaker, group::AbstractDataF
     n = nrow(group)
     
     # Match igdiscover's behavior: if n <= 2, just take the first row
-    # This ensures deterministic behavior when there are ties
     if n <= 2
-        return group[1:1, :]
+        return remove_original_index(group[1:1, :])
     end
     
     # For n > 2, use most common VDJ_nt weighted by count
     count_col = :count ∈ propertynames(group) ? group.count : ones(Int, nrow(group))
+    sorted_group = :original_index ∈ propertynames(group) ? sort(group, :original_index) : group
     
-    vdj_counts = Dict{String,Int}()
-    for (vdj_nt, cnt) in zip(group.vdj_nt, count_col)
+    # Track VDJ_nt counts and first occurrence index (matching Python Counter insertion order)
+    vdj_counts = Dict{String, Tuple{Int, Int}}()  # (count, first_index)
+    
+    for i in 1:nrow(sorted_group)
+        vdj_nt = sorted_group.vdj_nt[i]
+        cnt = count_col[i]
         if !ismissing(vdj_nt)
-            vdj_counts[vdj_nt] = get(vdj_counts, vdj_nt, 0) + cnt
+            if haskey(vdj_counts, vdj_nt)
+                old_count, first_idx = vdj_counts[vdj_nt]
+                vdj_counts[vdj_nt] = (old_count + cnt, first_idx)
+            else
+                vdj_counts[vdj_nt] = (cnt, i)
+            end
         end
     end
     
     if isempty(vdj_counts)
-        return group[1:1, :]
+        return remove_original_index(sorted_group[1:1, :])
     end
     
-    most_common_vdj_nt = argmax(vdj_counts)
+    # Find VDJ_nt with maximum count, using first occurrence for ties (matching Counter.most_common(1))
+    max_count = maximum(x[1] for x in values(vdj_counts))
+    tied_vdj_nts = [(vdj, idx) for (vdj, (cnt, idx)) in vdj_counts if cnt == max_count]
+    sort!(tied_vdj_nts, by=x->x[2])  # Sort by first occurrence index
+    most_common_vdj_nt = tied_vdj_nts[1][1]
     
-    for i in 1:nrow(group)
-        if !ismissing(group.vdj_nt[i]) && group.vdj_nt[i] == most_common_vdj_nt
-            return group[i:i, :]
+    # Find first row with this VDJ_nt (matching igdiscover's .iloc[0])
+    for i in 1:nrow(sorted_group)
+        if !ismissing(sorted_group.vdj_nt[i]) && sorted_group.vdj_nt[i] == most_common_vdj_nt
+            return remove_original_index(sorted_group[i:i, :])
         end
     end
     
-    return group[1:1, :]
+    # Fallback (should not reach here)
+    return remove_original_index(sorted_group[1:1, :])
 end
 
 """
@@ -368,8 +393,12 @@ function process_lineages(df::DataFrame;
                           distance_metric::Union{DistanceMetric, NormalizedDistanceMetric} = HammingDistance(),
                           clustering_method::ClusteringMethod = HierarchicalClustering(1.0),
                           linkage::Symbol = :single)::DataFrame
-    # Group by VJ combination and CDR3 length first
-    groups = groupby(df, [:v_call_first, :j_call_first, :cdr3_length])
+    # Add original row index to preserve input order (matching igdiscover's table order)
+    df_with_index = copy(df)
+    df_with_index[!, :original_index] = 1:nrow(df_with_index)
+    
+    # Group by VJ combination and CDR3 length
+    groups = groupby(df_with_index, [:v_call_first, :j_call_first, :cdr3_length])
     processed_groups = Vector{DataFrame}()
 
     for group in groups
@@ -399,7 +428,7 @@ function process_lineages(df::DataFrame;
                               select(unique_dna_data, :cdr3, :cluster, :min_distance),
                               on = :cdr3)
 
-        # Process statistics
+        # Compute cluster statistics
         transform!(group_result, :cluster => (x -> length.(x)) => :cluster_size)
         group_result = transform(groupby(group_result, [:cluster, :cdr3]), nrow => :cdr3_count)
         transform!(groupby(group_result, :cluster), :cdr3_count => maximum => :max_cdr3_count)
@@ -412,13 +441,17 @@ function process_lineages(df::DataFrame;
 
     result = vcat(processed_groups...)
     result[!, :lineage_id] = groupindices(groupby(result, [:v_call_first, :j_call_first, :cdr3_length, :cluster]))
+    
+    # Preserve input order (matching igdiscover)
+    sort!(result, :original_index)
+    select!(result, Not(:original_index))
 
     return result
 end
 
 """
     collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
-                      tie_breaker::AbstractTieBreaker=ByVdjCount(),
+                      tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt(),
                       tie_atol::Real=0.0)
 
 Collapse lineages in a DataFrame based on clone frequency and a specified collapse strategy.
@@ -427,22 +460,22 @@ When using `Hardest()` strategy (one representative per lineage), the function a
 - Sums the `count` column across all members of each lineage
 - Adds `nVDJ_nt` column with the number of unique VDJ_nt sequences per lineage
 
-This matches igdiscover's clonotypes output format.
+The default `tie_breaker=ByMostCommonVdjNt()` matches igdiscover's clonotypes behavior.
 
 # Arguments
 - `df::DataFrame`: Input DataFrame containing lineage data. Must have columns [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3].
 - `strategy::CollapseStrategy=Hardest()`: Strategy for collapsing lineages.
   - `Hardest()` selects only the most frequent clone per lineage.
   - `Soft(cutoff)` keeps clones whose frequency within a lineage is at or above `cutoff`.
-- `tie_breaker::AbstractTieBreaker=ByVdjCount()`: Tie-breaking policy when multiple clones
-  share the maximum `clone_frequency` under `Hardest()`. Options: `ByVdjCount()`
-  (default), `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`,
-  `ByMostNaive()`, `ByMostCommonVdjNt()`. Compose rules with `+` (e.g. `ByVdjCount() + ByMostNaive()`).
-- `ByVdjCount()` requires a `vdj_nt` column (derived in `preprocess_data`
-  when `v_sequence_start` and `j_sequence_end` are available).
-- `ByMostNaive()` requires `v_identity` and `j_identity` columns.
-- `ByMostCommonVdjNt()` matches igdiscover's clonotypes behavior: selects the row
-  with the most common `vdj_nt` weighted by `count`. Requires `vdj_nt` column.
+- `tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt()`: Tie-breaking policy when multiple clones
+  share the maximum `clone_frequency` under `Hardest()`. Default `ByMostCommonVdjNt()` matches
+  igdiscover's behavior. Other options:
+  - `ByMostCommonVdjNt()` (default): Matches igdiscover's clonotypes behavior - selects the row
+    with the most common `vdj_nt` weighted by `count`. Requires `vdj_nt` column.
+  - `ByVdjCount()`: Requires a `vdj_nt` column (derived in `preprocess_data`
+    when `v_sequence_start` and `j_sequence_end` are available).
+  - `ByCdr3Count()`, `ByLexicographic()`, `BySequenceCount()`, `ByFirst()`, `ByMostNaive()`.
+  Compose rules with `+` (e.g. `ByVdjCount() + ByMostNaive()`).
 - `tie_atol::Real=0.0`: Absolute tolerance for considering clone frequencies equal
   when identifying ties.
 
@@ -457,24 +490,28 @@ This matches igdiscover's clonotypes output format.
 ```julia
 lineages = DataFrame(...)  # Your input data
 
-# Default collapse (aggregates count, adds nVDJ_nt)
+# Default collapse (matches igdiscover's clonotypes output)
 collapsed = collapse_lineages(lineages, Hardest())
 
-# To match igdiscover's clonotypes output exactly:
-collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByMostCommonVdjNt())
+# Use alternative tie-breaker
+collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByVdjCount())
 
 # Soft collapse (keeps multiple clones per lineage)
 collapsed = collapse_lineages(lineages, Soft(0.1))
 ```
 """
 function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
-                           tie_breaker::AbstractTieBreaker=ByVdjCount(),
+                           tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt(),
                            tie_atol::Real=0.0)
-    with_frequency = clone_frequency_table(df)
-
-    df_with_freq = leftjoin(df, with_frequency,
+    # Preserve input order within each lineage (matching igdiscover)
+    df_with_index = copy(df)
+    df_with_index[!, :original_index] = 1:nrow(df_with_index)
+    
+    with_frequency = clone_frequency_table(df_with_index)
+    df_with_freq = leftjoin(df_with_index, with_frequency,
         on=[:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3],
         makeunique=true)
+    sort!(df_with_freq, :original_index)
 
     if requires_vdj_nt(tie_breaker) && :vdj_nt ∉ propertynames(df_with_freq)
         throw(ArgumentError("vdj_nt column is required for the selected tie_breaker. " *
@@ -488,7 +525,8 @@ function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
     aggregates = compute_aggregates(strategy, df_with_freq)
 
     collapsed = combine(groupby(df_with_freq, :lineage_id)) do group
-        collapse_group(strategy, group, tie_breaker, tie_atol)
+        result = collapse_group(strategy, group, tie_breaker, tie_atol)
+        return remove_original_index(result)
     end
 
     return apply_aggregates(collapsed, aggregates)
