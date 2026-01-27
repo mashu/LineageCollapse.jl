@@ -80,9 +80,13 @@ function preprocess_data(df::DataFrame;
         @info "Dropped short (≤$min_d_region_length) D region sequences: $(nrow(df))"
     end
     
-    # Extract first allele from v_call and j_call
-    transform!(df, :v_call => ByRow(x -> first(split(x, ","))) => :v_call_first)
-    transform!(df, :j_call => ByRow(x -> first(split(x, ","))) => :j_call_first)
+    # Extract first allele from v_call and j_call (normalize to String)
+    transform!(df, :v_call => ByRow(x -> String(first(split(x, ",")))) => :v_call_first)
+    transform!(df, :j_call => ByRow(x -> String(first(split(x, ",")))) => :j_call_first)
+    
+    # Normalize string columns to String type for consistent downstream processing
+    df[!, :d_region] = String.(df.d_region)
+    df[!, :cdr3] = String.(df.cdr3)
     
     # Calculate CDR3 length
     transform!(df, :cdr3 => ByRow(length) => :cdr3_length)
