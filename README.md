@@ -94,6 +94,18 @@ Available tie-breakers: `ByMostCommonVdjNt()`, `ByVdjCount()`, `ByCdr3Count()`, 
 4. **Cluster Formation**: Clusters are formed by cutting the dendrogram at the specified threshold. Lower values create more clusters, higher values fewer clusters.
 5. **Collapsing**: Representatives are selected per lineage (`Hardest`) or clones above a frequency threshold are retained (`Soft`).
 
+## Benchmark
+
+Performance on a 617K sequence repertoire (Intel Core i9-13980HX, 32 threads):
+
+| Stage | Time | % of Total | Rate |
+|-------|------|------------|------|
+| IO (gzipped TSV) | 6.2 s | 64.6% | 100K seq/s |
+| Preprocessing | 1.2 s | 13.1% | 496K seq/s |
+| Clustering | 0.4 s | 4.3% | 1.5M seq/s |
+| Collapse (Hardest) | 1.7 s | 18.1% | 358K seq/s |
+| **Total** | **9.5 s** | 100% | **65K seq/s** |
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
