@@ -221,9 +221,12 @@ function process_vj_group!(group::SubDataFrame, rows::AbstractVector{Int},
         min_dists = Float32[0.0f0]
     end
     
-    # Build lookup - use String keys since preprocessing normalizes types
+    n_clusters = maximum(clusters)
     cdr3_to_idx = Dict{String,Int}(unique_cdr3[i] => i for i in 1:n_unique)
-    cluster_sizes = Dict{Int,Int}()
+    
+    # Use Vectors for cluster-indexed data (clusters are 1:K)
+    cluster_sizes = zeros(Int, n_clusters)
+    cluster_max_cdr3 = zeros(Int, n_clusters)
     cluster_cdr3_counts = Dict{Tuple{Int,String},Int}()
     
     @inbounds for (li, ri) in enumerate(rows)
@@ -232,13 +235,14 @@ function process_vj_group!(group::SubDataFrame, rows::AbstractVector{Int},
         c = clusters[idx]
         cluster_vec[ri] = c
         min_dist_vec[ri] = min_dists[idx]
-        cluster_sizes[c] = get(cluster_sizes, c, 0) + 1
-        cluster_cdr3_counts[(c, cdr3)] = get(cluster_cdr3_counts, (c, cdr3), 0) + 1
-    end
-    
-    cluster_max_cdr3 = Dict{Int,Int}()
-    for ((c, _), cnt) in cluster_cdr3_counts
-        cluster_max_cdr3[c] = max(get(cluster_max_cdr3, c, 0), cnt)
+        cluster_sizes[c] += 1
+        
+        key = (c, cdr3)
+        cnt = get(cluster_cdr3_counts, key, 0) + 1
+        cluster_cdr3_counts[key] = cnt
+        if cnt > cluster_max_cdr3[c]
+            cluster_max_cdr3[c] = cnt
+        end
     end
     
     @inbounds for (li, ri) in enumerate(rows)
@@ -345,9 +349,15 @@ function compute_clone_frequency_lookup(df::DataFrame)
     clone_counts = combine(groupby(df, clone_keys; sort=false), nrow => :_cnt)
     lineage_totals = combine(groupby(clone_counts, :lineage_id; sort=false), :_cnt => sum => :_total)
     
+    # Use Vector for lineage totals (lineage_id is 1:N from groupindices)
+    n_lineages = maximum(lineage_totals.lineage_id)
+    lin_totals = zeros(Int, n_lineages)
+    @inbounds for row in eachrow(lineage_totals)
+        lin_totals[row.lineage_id] = row._total
+    end
+    
     freq = Dict{CloneKey,Float64}()
     cnt_dict = Dict{CloneKey,Int}()
-    lin_totals = Dict{Int,Int}(row.lineage_id => row._total for row in eachrow(lineage_totals))
     
     for row in eachrow(clone_counts)
         key = (row.d_region, row.lineage_id, row.j_call_first, row.v_call_first, row.cdr3)::CloneKey
@@ -511,38 +521,34 @@ end
     end
 end
 
-# Aggregation for Hardest collapse
+# Aggregation for Hardest collapse (uses Vectors since lineage_id is 1:N)
 struct LineageAggregates
-    count_sums::Dict{Int,Int}
-    vdj_counts::Dict{Int,Int}
+    count_sums::Vector{Int}
+    vdj_counts::Vector{Int}
 end
 
 function compute_aggregates(df::AbstractDataFrame)
     has_count = hasproperty(df, :count)
     has_vdj = hasproperty(df, :vdj_nt)
     
-    count_sums = Dict{Int,Int}()
-    vdj_sets = Dict{Int,Set{String}}()
+    n_lineages = maximum(df.lineage_id)
+    count_sums = zeros(Int, n_lineages)
+    vdj_sets = [Set{String}() for _ in 1:n_lineages]
     
     lineage_col = df.lineage_id
     
     @inbounds for i in 1:nrow(df)
         lid = lineage_col[i]
         cnt = has_count ? (ismissing(df.count[i]) ? 0 : df.count[i]) : 1
-        count_sums[lid] = get(count_sums, lid, 0) + cnt
+        count_sums[lid] += cnt
         
         if has_vdj
             vdj = df.vdj_nt[i]
-            if !ismissing(vdj)
-                if !haskey(vdj_sets, lid)
-                    vdj_sets[lid] = Set{String}()
-                end
-                push!(vdj_sets[lid], vdj)
-            end
+            !ismissing(vdj) && push!(vdj_sets[lid], vdj)
         end
     end
     
-    vdj_counts = Dict{Int,Int}(lid => length(s) for (lid, s) in vdj_sets)
+    vdj_counts = has_vdj ? [length(s) for s in vdj_sets] : Int[]
     LineageAggregates(count_sums, vdj_counts)
 end
 
@@ -551,13 +557,13 @@ function build_hardest_result(df::DataFrame, selected::Vector{Int}, agg::Lineage
     n = length(selected)
     
     counts = Vector{Int}(undef, n)
-    nvdj = Vector{Int}(undef, n)
     has_vdj = !isempty(agg.vdj_counts)
+    nvdj = has_vdj ? Vector{Int}(undef, n) : Int[]
     
     @inbounds for i in 1:n
         lid = result.lineage_id[i]
-        counts[i] = get(agg.count_sums, lid, 0)
-        nvdj[i] = has_vdj ? get(agg.vdj_counts, lid, 0) : 0
+        counts[i] = agg.count_sums[lid]
+        has_vdj && (nvdj[i] = agg.vdj_counts[lid])
     end
     
     result[!, :count] = counts
