@@ -45,6 +45,14 @@ struct Hardest <: CollapseStrategy end
     Soft{T} <: CollapseStrategy
 
 Collapse strategy that keeps all clones above a frequency threshold.
+
+# Fields
+- `cutoff::T`: Minimum clone frequency to retain (0.0 to 1.0)
+
+# Example
+```julia
+Soft(0.2)  # Keep clones with frequency ≥ 20%
+```
 """
 struct Soft{T<:AbstractFloat} <: CollapseStrategy
     cutoff::T
@@ -61,6 +69,14 @@ Soft(cutoff::Integer) = Soft(float(cutoff))
     HierarchicalClustering{T} <: ClusteringMethod
 
 Hierarchical clustering with a distance cutoff.
+
+# Fields
+- `cutoff::T`: Distance threshold for cluster merging
+
+# Example
+```julia
+HierarchicalClustering(1.0f0)  # Merge clusters within distance 1.0
+```
 """
 struct HierarchicalClustering{T<:AbstractFloat} <: ClusteringMethod
     cutoff::T
@@ -134,7 +150,21 @@ select_clustering(threshold::AbstractFloat) = HierarchicalClustering(Float32(thr
     process_lineages(df::DataFrame, threshold; linkage=:single) -> DataFrame
 
 Process sequences into lineages using CDR3 clustering.
-Threshold type determines metric: Integer -> Hamming, Float -> Normalized.
+
+# Arguments
+- `df::DataFrame`: Preprocessed data with columns `v_call_first`, `j_call_first`, `cdr3`, `cdr3_length`, `d_region`
+- `threshold`: Clustering threshold. Integer for absolute mismatches, Float (0.0-1.0) for fraction of CDR3 length.
+- `linkage::Symbol=:single`: Hierarchical clustering linkage (`:single`, `:complete`, `:average`)
+
+# Returns
+DataFrame with added columns:
+- `lineage_id::Int`: Unique lineage identifier
+- `cluster::Int`: Cluster assignment within V/J group
+- `cluster_size::Int`: Number of sequences in cluster
+- `min_distance::Float32`: Minimum distance to other CDR3s in cluster
+- `cdr3_count::Int`: Count of this CDR3 in cluster
+- `max_cdr3_count::Int`: Maximum CDR3 count in cluster
+- `cdr3_frequency::Float64`: `cdr3_count / max_cdr3_count`
 """
 function process_lineages(df::DataFrame, threshold::T; linkage::Symbol=:single) where {T<:Union{Integer,AbstractFloat}}
     threshold >= 0 || throw(ArgumentError("threshold must be non-negative"))
@@ -148,6 +178,13 @@ end
     process_lineages(df::DataFrame; distance_metric, clustering_method, linkage) -> DataFrame
 
 Process sequences into lineages with explicit metric and clustering configuration.
+
+# Keyword Arguments
+- `distance_metric::AbstractDistanceMetric=HammingDistance()`: Distance metric for CDR3 comparison
+- `clustering_method::ClusteringMethod=HierarchicalClustering(1.0f0)`: Clustering method and cutoff
+- `linkage::Symbol=:single`: Hierarchical clustering linkage
+
+See `process_lineages(df, threshold)` for return value documentation.
 """
 function process_lineages(df::DataFrame;
                           distance_metric::AbstractDistanceMetric=HammingDistance(),
@@ -289,6 +326,23 @@ struct NoVdjCountLookup end
     collapse_lineages(df::DataFrame, strategy=Hardest(); tie_breaker, tie_atol) -> DataFrame
 
 Collapse lineages to representative sequences.
+
+# Arguments
+- `df::DataFrame`: Data from `process_lineages` with `lineage_id` column
+- `strategy::CollapseStrategy=Hardest()`: Collapse strategy
+  - `Hardest()`: One representative per lineage (highest clone frequency)
+  - `Soft(cutoff)`: Keep all clones with frequency ≥ cutoff
+
+# Keyword Arguments
+- `tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt()`: Strategy for breaking ties
+- `tie_atol::Real=0.0`: Tolerance for frequency comparison
+
+# Returns
+For `Hardest()`:
+- Selected rows with added `count::Int` (sum of counts) and `nVDJ_nt::Int` (unique VDJ sequences)
+
+For `Soft(cutoff)`:
+- Rows meeting threshold with added `clone_frequency::Float64` and `sequence_count::Int`
 """
 function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
                            tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt(),
