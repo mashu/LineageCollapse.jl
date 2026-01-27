@@ -1,12 +1,7 @@
 """
-Abstract type for distance metrics used in sequence comparison.
+Abstract type for all distance metrics used in sequence comparison.
 """
-abstract type DistanceMetric end
-
-"""
-Abstract type for normalized distance metrics (fraction of sequence length).
-"""
-abstract type NormalizedDistanceMetric end
+abstract type AbstractDistanceMetric end
 
 """
 Abstract type for clustering methods.
@@ -19,31 +14,30 @@ Abstract type for lineage collapse strategies.
 abstract type CollapseStrategy end
 
 """
-    HammingDistance <: DistanceMetric
+    HammingDistance <: AbstractDistanceMetric
 
 Hamming distance metric - counts the number of mismatches between sequences.
 """
-struct HammingDistance <: DistanceMetric end
+struct HammingDistance <: AbstractDistanceMetric end
 
 """
-    NormalizedHammingDistance <: NormalizedDistanceMetric
+    NormalizedHammingDistance <: AbstractDistanceMetric
 
 Normalized Hamming distance - mismatches divided by sequence length.
 """
-struct NormalizedHammingDistance <: NormalizedDistanceMetric end
+struct NormalizedHammingDistance <: AbstractDistanceMetric end
 
 """
-    LevenshteinDistance <: DistanceMetric
+    LevenshteinDistance <: AbstractDistanceMetric
 
 Levenshtein (edit) distance metric.
 """
-struct LevenshteinDistance <: DistanceMetric end
+struct LevenshteinDistance <: AbstractDistanceMetric end
 
 """
     Hardest <: CollapseStrategy
 
-Collapse strategy that selects exactly one representative per lineage
-(the clone with highest frequency within the lineage).
+Collapse strategy that selects exactly one representative per lineage.
 """
 struct Hardest <: CollapseStrategy end
 
@@ -51,9 +45,6 @@ struct Hardest <: CollapseStrategy end
     Soft{T} <: CollapseStrategy
 
 Collapse strategy that keeps all clones above a frequency threshold.
-
-# Fields
-- `cutoff::T`: Minimum clone frequency to retain (0.0 to 1.0)
 """
 struct Soft{T<:AbstractFloat} <: CollapseStrategy
     cutoff::T
@@ -63,50 +54,48 @@ struct Soft{T<:AbstractFloat} <: CollapseStrategy
     end
 end
 
-Soft(cutoff::AbstractFloat) = Soft{typeof(cutoff)}(cutoff)
+Soft(cutoff::T) where {T<:AbstractFloat} = Soft{T}(cutoff)
 Soft(cutoff::Integer) = Soft(float(cutoff))
 
 """
-    HierarchicalClustering <: ClusteringMethod
+    HierarchicalClustering{T} <: ClusteringMethod
 
 Hierarchical clustering with a distance cutoff.
-
-# Fields
-- `cutoff::Float32`: Distance threshold for cluster merging
 """
-struct HierarchicalClustering <: ClusteringMethod
-    cutoff::Float32
+struct HierarchicalClustering{T<:AbstractFloat} <: ClusteringMethod
+    cutoff::T
 end
 
+HierarchicalClustering(cutoff::Integer) = HierarchicalClustering{Float32}(Float32(cutoff))
+
+# Clone key type for type-stable lookups
+const CloneKey{S} = Tuple{S, Int, S, S, S} where S
+
 """
-    compute_distance(metric, x::LongDNA{4}, y::LongDNA{4}) -> Float32
+    compute_distance(metric::AbstractDistanceMetric, x::LongDNA{4}, y::LongDNA{4}) -> Float32
 
 Compute distance between two DNA sequences using the specified metric.
+Multiple dispatch selects the appropriate implementation.
 """
 function compute_distance end
 
-@inline function compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
+@inline compute_distance(::HammingDistance, x::LongDNA{4}, y::LongDNA{4}) = 
     Float32(mismatches(x, y))
-end
 
-@inline function compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
+@inline compute_distance(::NormalizedHammingDistance, x::LongDNA{4}, y::LongDNA{4}) = 
     Float32(mismatches(x, y)) / Float32(length(x))
-end
 
-@inline function compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4})::Float32
+@inline compute_distance(::LevenshteinDistance, x::LongDNA{4}, y::LongDNA{4}) = 
     Float32(evaluate(Levenshtein(), String(x), String(y)))
-end
 
 """
-    compute_pairwise_distance(metric, sequences) -> Matrix{Float32}
+    compute_pairwise_distance(metric::M, sequences) -> Matrix{Float32}
 
-Compute pairwise distance matrix for a collection of DNA sequences.
-Returns upper triangular matrix.
+Compute pairwise distance matrix. Parametric type ensures compile-time specialization.
 """
 function compute_pairwise_distance(
-    metric::M,
-    sequences::AbstractVector{S}
-)::Matrix{Float32} where {M<:Union{DistanceMetric,NormalizedDistanceMetric}, S<:LongSequence{DNAAlphabet{4}}}
+    metric::M, sequences::AbstractVector{S}
+) where {M<:AbstractDistanceMetric, S<:LongSequence{DNAAlphabet{4}}}
     n = length(sequences)
     n > 0 || throw(ArgumentError("No sequences provided"))
     dist_matrix = zeros(Float32, n, n)
@@ -128,39 +117,34 @@ end
 """
     perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix) -> Vector{Int}
 
-Perform hierarchical clustering and return cluster assignments.
+Perform hierarchical clustering. Dispatches on clustering method type.
 """
-function perform_clustering(method::HierarchicalClustering, linkage::Symbol, dist_matrix::AbstractMatrix)::Vector{Int}
+function perform_clustering(method::HierarchicalClustering{T}, linkage::Symbol, 
+                           dist_matrix::AbstractMatrix{<:AbstractFloat}) where {T}
     cutree(hclust(dist_matrix, linkage=linkage, uplo=:U), h=method.cutoff)
 end
 
-@inline function cdr3_threshold_params(threshold::Integer)
-    threshold >= 0 || throw(ArgumentError("threshold must be non-negative"))
-    HammingDistance(), HierarchicalClustering(Float32(threshold))
-end
+# Dispatch on threshold type to select metric
+select_metric(::Type{<:Integer}) = HammingDistance()
+select_metric(::Type{<:AbstractFloat}) = NormalizedHammingDistance()
 
-@inline function cdr3_threshold_params(threshold::AbstractFloat)
-    (0.0 <= threshold <= 1.0) || throw(ArgumentError("threshold must be between 0.0 and 1.0"))
-    NormalizedHammingDistance(), HierarchicalClustering(Float32(threshold))
-end
+select_clustering(threshold::Integer) = HierarchicalClustering(Float32(threshold))
+select_clustering(threshold::AbstractFloat) = HierarchicalClustering(Float32(threshold))
 
 """
     process_lineages(df::DataFrame, threshold; linkage=:single) -> DataFrame
 
 Process sequences into lineages using CDR3 clustering.
-
-# Arguments
-- `df::DataFrame`: Input data with columns `v_call_first`, `j_call_first`, `cdr3`, `cdr3_length`
-- `threshold`: If Integer, absolute mismatches. If Float, fraction of CDR3 length.
-- `linkage::Symbol=:single`: Hierarchical clustering linkage method
-
-# Returns
-DataFrame with added columns: `lineage_id`, `cluster`, `min_distance`, `cluster_size`,
-`cdr3_count`, `max_cdr3_count`, `cdr3_frequency`
+Threshold type determines metric via dispatch: Integer -> Hamming, Float -> Normalized.
 """
-function process_lineages(df::DataFrame, threshold::Union{Integer,AbstractFloat}; linkage::Symbol=:single)::DataFrame
-    metric, clustering = cdr3_threshold_params(threshold)
-    process_lineages(df; distance_metric=metric, clustering_method=clustering, linkage=linkage)
+function process_lineages(df::DataFrame, threshold::T; linkage::Symbol=:single) where {T<:Union{Integer,AbstractFloat}}
+    threshold >= 0 || throw(ArgumentError("threshold must be non-negative"))
+    T <: AbstractFloat && !(0.0 <= threshold <= 1.0) && 
+        throw(ArgumentError("float threshold must be between 0.0 and 1.0"))
+    
+    metric = select_metric(T)
+    clustering = select_clustering(threshold)
+    process_lineages_impl(df, metric, clustering, linkage)
 end
 
 """
@@ -169,12 +153,17 @@ end
 Process sequences into lineages with explicit metric and clustering configuration.
 """
 function process_lineages(df::DataFrame;
-                          distance_metric::Union{DistanceMetric,NormalizedDistanceMetric}=HammingDistance(),
+                          distance_metric::AbstractDistanceMetric=HammingDistance(),
                           clustering_method::ClusteringMethod=HierarchicalClustering(1.0f0),
-                          linkage::Symbol=:single)::DataFrame
+                          linkage::Symbol=:single)
+    process_lineages_impl(df, distance_metric, clustering_method, linkage)
+end
+
+function process_lineages_impl(df::DataFrame, metric::M, clustering::C, linkage::Symbol) where {
+        M<:AbstractDistanceMetric, C<:ClusteringMethod}
     n = nrow(df)
     
-    # Build index arrays for computed columns - no copy of df
+    # Pre-allocate output vectors with concrete types
     cluster_vec = Vector{Int}(undef, n)
     min_dist_vec = Vector{Float32}(undef, n)
     cluster_size_vec = Vector{Int}(undef, n)
@@ -182,24 +171,18 @@ function process_lineages(df::DataFrame;
     max_cdr3_count_vec = Vector{Int}(undef, n)
     cdr3_freq_vec = Vector{Float64}(undef, n)
     
-    # Group by VJ+length and process each group
     groups = groupby(df, [:v_call_first, :j_call_first, :cdr3_length]; sort=false)
-    group_indices = groupindices(groups)
-    
-    # Process groups in parallel, writing directly to output vectors
     ngroups = length(groups)
     
-    # First pass: compute clusters per group
     Threads.@threads for gi in 1:ngroups
         group = groups[gi]
-        rows = parentindices(group)[1]  # Get row indices in original df
-        process_vj_group_inplace!(group, rows, cluster_vec, min_dist_vec, 
-                                  cluster_size_vec, cdr3_count_vec, max_cdr3_count_vec, cdr3_freq_vec,
-                                  distance_metric, clustering_method)
+        rows = parentindices(group)[1]
+        process_vj_group!(group, rows, cluster_vec, min_dist_vec, 
+                         cluster_size_vec, cdr3_count_vec, max_cdr3_count_vec, cdr3_freq_vec,
+                         metric, clustering, linkage)
     end
     
-    # Compute lineage IDs using groupby on original df + cluster
-    # Build a temporary DataFrame with just the keys needed
+    # Compute lineage IDs
     temp_keys = DataFrame(
         v_call_first = df.v_call_first,
         j_call_first = df.j_call_first, 
@@ -208,8 +191,7 @@ function process_lineages(df::DataFrame;
     )
     lineage_id_vec = groupindices(groupby(temp_keys, [:v_call_first, :j_call_first, :cdr3_length, :cluster]; sort=false))
     
-    # Build result by combining original df with computed columns (no copy, uses views)
-    result = hcat(df, DataFrame(
+    hcat(df, DataFrame(
         cluster = cluster_vec,
         min_distance = min_dist_vec,
         cluster_size = cluster_size_vec,
@@ -218,21 +200,18 @@ function process_lineages(df::DataFrame;
         cdr3_frequency = cdr3_freq_vec,
         lineage_id = lineage_id_vec
     ); copycols=false)
-    
-    result
 end
 
-function process_vj_group_inplace!(group::SubDataFrame, rows::AbstractVector{Int},
-                                   cluster_vec::Vector{Int}, min_dist_vec::Vector{Float32},
-                                   cluster_size_vec::Vector{Int}, cdr3_count_vec::Vector{Int},
-                                   max_cdr3_count_vec::Vector{Int}, cdr3_freq_vec::Vector{Float64},
-                                   metric, clustering)
+function process_vj_group!(group::SubDataFrame, rows::AbstractVector{Int},
+                          cluster_vec::Vector{Int}, min_dist_vec::Vector{Float32},
+                          cluster_size_vec::Vector{Int}, cdr3_count_vec::Vector{Int},
+                          max_cdr3_count_vec::Vector{Int}, cdr3_freq_vec::Vector{Float64},
+                          metric::M, clustering::C, linkage::Symbol) where {M<:AbstractDistanceMetric, C<:ClusteringMethod}
     cdr3_col = group.cdr3
     unique_cdr3 = unique(cdr3_col)
     n_unique = length(unique_cdr3)
-    n_rows = length(rows)
+    CT = eltype(unique_cdr3)
     
-    # Compute clusters and min distances for unique CDR3s
     local clusters::Vector{Int}
     local min_dists::Vector{Float32}
     
@@ -240,18 +219,15 @@ function process_vj_group_inplace!(group::SubDataFrame, rows::AbstractVector{Int
         seqs = LongDNA{4}.(unique_cdr3)
         dist = compute_pairwise_distance(metric, seqs)
         min_dists = compute_min_distances(dist)
-        clusters = perform_clustering(clustering, :single, dist)
+        clusters = perform_clustering(clustering, linkage, dist)
     else
-        clusters = [1]
-        min_dists = [0.0f0]
+        clusters = Int[1]
+        min_dists = Float32[0.0f0]
     end
     
-    # Build lookup from CDR3 to cluster/min_dist
-    cdr3_to_idx = Dict{eltype(unique_cdr3),Int}(unique_cdr3[i] => i for i in 1:n_unique)
-    
-    # Map to all rows and compute cluster stats
+    cdr3_to_idx = Dict{CT,Int}(unique_cdr3[i] => i for i in 1:n_unique)
     cluster_sizes = Dict{Int,Int}()
-    cluster_cdr3_counts = Dict{Tuple{Int,eltype(unique_cdr3)},Int}()
+    cluster_cdr3_counts = Dict{Tuple{Int,CT},Int}()
     
     @inbounds for (li, ri) in enumerate(rows)
         cdr3 = cdr3_col[li]
@@ -263,13 +239,11 @@ function process_vj_group_inplace!(group::SubDataFrame, rows::AbstractVector{Int
         cluster_cdr3_counts[(c, cdr3)] = get(cluster_cdr3_counts, (c, cdr3), 0) + 1
     end
     
-    # Compute max cdr3 count per cluster
     cluster_max_cdr3 = Dict{Int,Int}()
     for ((c, _), cnt) in cluster_cdr3_counts
         cluster_max_cdr3[c] = max(get(cluster_max_cdr3, c, 0), cnt)
     end
     
-    # Fill stats vectors
     @inbounds for (li, ri) in enumerate(rows)
         cdr3 = cdr3_col[li]
         c = cluster_vec[ri]
@@ -298,70 +272,75 @@ function compute_min_distances(dist::Matrix{Float32})
     mins
 end
 
+# Type-stable lookup structures
+struct CloneFrequencyLookup{K}
+    freq::Dict{K,Float64}
+    count::Dict{K,Int}
+end
+
+struct VdjCountLookup{K}
+    lookup::Dict{K,Int}
+end
+
+struct NoVdjCountLookup end
+
 """
     collapse_lineages(df::DataFrame, strategy=Hardest(); tie_breaker, tie_atol) -> DataFrame
 
-Collapse lineages to representative sequences.
-
-# Arguments
-- `df::DataFrame`: Input data with `lineage_id` column from `process_lineages`
-- `strategy::CollapseStrategy=Hardest()`: `Hardest()` for one per lineage, `Soft(cutoff)` for frequency threshold
-- `tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt()`: Tie-breaking strategy (matches igdiscover)
-- `tie_atol::Real=0.0`: Tolerance for frequency comparison
-
-# Returns
-DataFrame with collapsed lineages. For `Hardest()`, includes aggregated `count` and `nVDJ_nt`.
+Collapse lineages to representative sequences. Strategy type controls behavior via dispatch.
 """
-function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
-                           tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt(),
-                           tie_atol::Real=0.0)
-    n = nrow(df)
+function collapse_lineages(df::DataFrame, strategy::S=Hardest();
+                           tie_breaker::TB=ByMostCommonVdjNt(),
+                           tie_atol::Real=0.0) where {S<:CollapseStrategy, TB<:AbstractTieBreaker}
+    validate_tie_breaker(tie_breaker, df)
     
-    # Validate requirements
-    if requires_vdj_nt(tie_breaker) && !hasproperty(df, :vdj_nt)
-        throw(ArgumentError("vdj_nt column required for selected tie_breaker"))
-    end
-    
-    # Compute clone frequencies into lookup table (no mutation of df)
-    clone_freq, seq_count = compute_clone_frequency_lookup(df)
-    
-    # Compute vdj_count lookup if needed
-    vdj_count_lookup = requires_vdj_count(tie_breaker) ? compute_vdj_count_lookup(df) : nothing
-    
-    # Compute aggregates before collapse (for Hardest strategy)  
+    clone_lookup = compute_clone_frequency_lookup(df)
+    vdj_lookup = compute_vdj_count_lookup(tie_breaker, df)
     agg = compute_aggregates(strategy, df)
     
-    # Select indices based on strategy
-    selected_indices = collapse_by_strategy(df, strategy, tie_breaker, Float64(tie_atol), 
-                                            clone_freq, seq_count, vdj_count_lookup)
-    
-    # Build result from selected rows
-    build_collapse_result(df, selected_indices, strategy, clone_freq, seq_count, vdj_count_lookup, agg)
+    selected = collapse_by_strategy(df, strategy, tie_breaker, Float64(tie_atol), clone_lookup, vdj_lookup)
+    build_collapse_result(df, selected, strategy, clone_lookup, agg)
 end
 
-# Compute clone frequency as lookup table: (d_region, lineage_id, j_call, v_call, cdr3) -> (frequency, seq_count)
+# Validation via dispatch
+validate_tie_breaker(::MostCommonVdjNtTieBreaker, df::DataFrame) = 
+    hasproperty(df, :vdj_nt) || throw(ArgumentError("vdj_nt column required"))
+validate_tie_breaker(tb::TieBreaker, df::DataFrame) = 
+    any(col == :vdj_count for (col, _) in tb.criteria) && !hasproperty(df, :vdj_nt) && 
+        throw(ArgumentError("vdj_nt column required for vdj_count"))
+validate_tie_breaker(::AbstractTieBreaker, ::DataFrame) = nothing
+
+# VDJ count lookup via dispatch - returns type-stable struct
+compute_vdj_count_lookup(::MostCommonVdjNtTieBreaker, ::DataFrame) = NoVdjCountLookup()
+compute_vdj_count_lookup(tb::TieBreaker, df::DataFrame) = 
+    any(col == :vdj_count for (col, _) in tb.criteria) ? compute_vdj_count_lookup_impl(df) : NoVdjCountLookup()
+
 function compute_clone_frequency_lookup(df::DataFrame)
     clone_keys = [:d_region, :lineage_id, :j_call_first, :v_call_first, :cdr3]
     clone_counts = combine(groupby(df, clone_keys; sort=false), nrow => :_cnt)
     lineage_totals = combine(groupby(clone_counts, :lineage_id; sort=false), :_cnt => sum => :_total)
     
-    # Build lookup
-    freq_lookup = Dict{Tuple{Any,Int,Any,Any,Any}, Float64}()
-    count_lookup = Dict{Tuple{Any,Int,Any,Any,Any}, Int}()
+    # Infer key type from grouped DataFrame - these are the actual types used
+    T1 = eltype(clone_counts.d_region)
+    T2 = eltype(clone_counts.j_call_first)
+    T3 = eltype(clone_counts.v_call_first)
+    T4 = eltype(clone_counts.cdr3)
+    K = Tuple{T1, Int, T2, T3, T4}
     
-    # Create lineage total lookup
+    freq = Dict{K,Float64}()
+    cnt_dict = Dict{K,Int}()
     lin_totals = Dict{Int,Int}(row.lineage_id => row._total for row in eachrow(lineage_totals))
     
     for row in eachrow(clone_counts)
         key = (row.d_region, row.lineage_id, row.j_call_first, row.v_call_first, row.cdr3)
-        freq_lookup[key] = row._cnt / lin_totals[row.lineage_id]
-        count_lookup[key] = row._cnt
+        freq[key] = row._cnt / lin_totals[row.lineage_id]
+        cnt_dict[key] = row._cnt
     end
     
-    freq_lookup, count_lookup
+    CloneFrequencyLookup{K}(freq, cnt_dict)
 end
 
-function compute_vdj_count_lookup(df::DataFrame)
+function compute_vdj_count_lookup_impl(df::DataFrame)
     has_count = hasproperty(df, :count)
     
     grouped = if !has_count
@@ -372,78 +351,82 @@ function compute_vdj_count_lookup(df::DataFrame)
                 :count => sum => :_vdj_cnt)
     end
     
-    # Max vdj_count per clone
     by_clone = combine(groupby(grouped, [:lineage_id, :d_region, :j_call_first, :v_call_first, :cdr3]; sort=false),
                        :_vdj_cnt => maximum => :_max_vdj)
     
-    lookup = Dict{Tuple{Int,Any,Any,Any,Any}, Int}()
+    T1 = eltype(by_clone.d_region)
+    T2 = eltype(by_clone.j_call_first)
+    T3 = eltype(by_clone.v_call_first)
+    T4 = eltype(by_clone.cdr3)
+    K = Tuple{Int, T1, T2, T3, T4}
+    lookup = Dict{K,Int}()
+    
     for row in eachrow(by_clone)
         key = (row.lineage_id, row.d_region, row.j_call_first, row.v_call_first, row.cdr3)
         lookup[key] = row._max_vdj
     end
-    lookup
+    
+    VdjCountLookup{K}(lookup)
 end
 
-function collapse_by_strategy(df::DataFrame, ::Hardest, tie_breaker::AbstractTieBreaker, atol::Float64,
-                              clone_freq, seq_count, vdj_count_lookup)
+# Collapse strategy dispatch
+function collapse_by_strategy(df::DataFrame, ::Hardest, tie_breaker::TB, atol::Float64,
+                              clone_lookup::CloneFrequencyLookup{K}, vdj_lookup) where {K, TB<:AbstractTieBreaker}
     groups = groupby(df, :lineage_id; sort=false)
     selected = Vector{Int}(undef, length(groups))
     
     for (gi, group) in enumerate(groups)
         rows = parentindices(group)[1]
-        selected[gi] = select_hardest_index(df, rows, tie_breaker, atol, clone_freq, seq_count, vdj_count_lookup)
+        selected[gi] = select_hardest_index(df, rows, tie_breaker, atol, clone_lookup, vdj_lookup)
     end
     selected
 end
 
-function collapse_by_strategy(df::DataFrame, strategy::Soft, ::AbstractTieBreaker, ::Float64,
-                              clone_freq, seq_count, vdj_count_lookup)
+function collapse_by_strategy(df::DataFrame, strategy::Soft{T}, ::AbstractTieBreaker, ::Float64,
+                              clone_lookup::CloneFrequencyLookup{K}, vdj_lookup) where {T, K}
     cutoff = strategy.cutoff
     indices = Int[]
     sizehint!(indices, nrow(df) ÷ 2)
     
     @inbounds for i in 1:nrow(df)
         key = (df.d_region[i], df.lineage_id[i], df.j_call_first[i], df.v_call_first[i], df.cdr3[i])
-        clone_freq[key] >= cutoff && push!(indices, i)
+        clone_lookup.freq[key] >= cutoff && push!(indices, i)
     end
     indices
 end
 
 function select_hardest_index(df::DataFrame, rows::AbstractVector{Int}, 
-                              tie_breaker::AbstractTieBreaker, atol::Float64,
-                              clone_freq, seq_count, vdj_count_lookup)
-    # Find max frequency among rows
+                              tie_breaker::TB, atol::Float64,
+                              clone_lookup::CloneFrequencyLookup{K}, vdj_lookup) where {K, TB<:AbstractTieBreaker}
     max_freq = 0.0
     @inbounds for ri in rows
         key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-        f = clone_freq[key]
+        f = clone_lookup.freq[key]
         f > max_freq && (max_freq = f)
     end
     
-    # Find candidates (rows with max frequency)
     candidates = if atol > 0.0
         Int[ri for ri in rows if begin
             key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-            abs(clone_freq[key] - max_freq) <= atol
+            abs(clone_lookup.freq[key] - max_freq) <= atol
         end]
     else
         Int[ri for ri in rows if begin
             key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-            clone_freq[key] == max_freq
+            clone_lookup.freq[key] == max_freq
         end]
     end
     
-    select_representative_index(tie_breaker, df, rows, candidates, seq_count, vdj_count_lookup)
+    select_representative(tie_breaker, df, rows, candidates, clone_lookup, vdj_lookup)
 end
 
-# MostCommonVdjNtTieBreaker - matches igdiscover's behavior exactly
-function select_representative_index(::MostCommonVdjNtTieBreaker, df::DataFrame, 
-                                     rows::AbstractVector{Int}, ::Vector{Int}, ::Any, ::Any)
+# Representative selection via dispatch on tie_breaker type
+function select_representative(::MostCommonVdjNtTieBreaker, df::DataFrame, 
+                              rows::AbstractVector{Int}, ::Vector{Int}, 
+                              ::CloneFrequencyLookup, ::NoVdjCountLookup)
     n = length(rows)
     n <= 2 && return rows[1]
     
-    # Process in original row order (rows are already in df order within the group)
-    # For igdiscover parity, we need insertion order - rows is already sorted
     vdj_col = df.vdj_nt
     count_col = hasproperty(df, :count) ? df.count : nothing
     
@@ -465,7 +448,6 @@ function select_representative_index(::MostCommonVdjNtTieBreaker, df::DataFrame,
     
     isempty(vdj_counts) && return rows[1]
     
-    # Find VDJ with max count, using first occurrence for ties
     max_count = 0
     best_row = rows[1]
     
@@ -480,30 +462,26 @@ function select_representative_index(::MostCommonVdjNtTieBreaker, df::DataFrame,
     best_row
 end
 
-# TieBreaker - uses sorting criteria  
-function select_representative_index(tb::TieBreaker, df::DataFrame, 
-                                     rows::AbstractVector{Int}, candidates::Vector{Int}, seq_count, vdj_count_lookup)
+function select_representative(tb::TieBreaker, df::DataFrame, 
+                              ::AbstractVector{Int}, candidates::Vector{Int},
+                              clone_lookup::CloneFrequencyLookup{K}, vdj_lookup) where K
     length(candidates) == 1 && return candidates[1]
     isempty(tb.criteria) && return candidates[1]
-    
-    # Validate columns exist (sequence_count and vdj_count come from lookups)
-    for (col, _) in tb.criteria
-        col in (:vdj_count, :sequence_count) && continue
-        hasproperty(df, col) || throw(ArgumentError("Missing column: $col"))
-    end
     
     best = candidates[1]
     @inbounds for i in 2:length(candidates)
         idx = candidates[i]
-        is_better_row(df, idx, best, tb.criteria, seq_count, vdj_count_lookup) && (best = idx)
+        is_better(df, idx, best, tb.criteria, clone_lookup, vdj_lookup) && (best = idx)
     end
     best
 end
 
-@inline function is_better_row(df, idx1::Int, idx2::Int, criteria::Vector{Pair{Symbol,Bool}}, seq_count, vdj_count_lookup)
+# Comparison dispatch on lookup type
+@inline function is_better(df, idx1::Int, idx2::Int, criteria::Vector{Pair{Symbol,Bool}},
+                          clone_lookup::CloneFrequencyLookup{K}, vdj_lookup::VdjCountLookup) where K
     @inbounds for (col, desc) in criteria
-        v1 = get_lookup_or_col(df, idx1, col, seq_count, vdj_count_lookup)
-        v2 = get_lookup_or_col(df, idx2, col, seq_count, vdj_count_lookup)
+        v1 = get_value(df, idx1, col, clone_lookup, vdj_lookup)
+        v2 = get_value(df, idx2, col, clone_lookup, vdj_lookup)
         isequal(v1, v2) && continue
         ismissing(v1) && return false
         ismissing(v2) && return true
@@ -512,29 +490,49 @@ end
     false
 end
 
-@inline function get_lookup_or_col(df, ri, col, seq_count, vdj_count_lookup)
-    if col == :vdj_count
-        return get_vdj_count(df, ri, vdj_count_lookup)
-    elseif col == :sequence_count
+@inline function is_better(df, idx1::Int, idx2::Int, criteria::Vector{Pair{Symbol,Bool}},
+                          clone_lookup::CloneFrequencyLookup{K}, ::NoVdjCountLookup) where K
+    @inbounds for (col, desc) in criteria
+        v1 = get_value_no_vdj(df, idx1, col, clone_lookup)
+        v2 = get_value_no_vdj(df, idx2, col, clone_lookup)
+        isequal(v1, v2) && continue
+        ismissing(v1) && return false
+        ismissing(v2) && return true
+        return desc ? v1 > v2 : v1 < v2
+    end
+    false
+end
+
+# Value access dispatch
+@inline function get_value(df, ri::Int, col::Symbol, clone_lookup::CloneFrequencyLookup{K}, 
+                          vdj_lookup::VdjCountLookup{K2}) where {K, K2}
+    if col === :sequence_count
         key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-        return get(seq_count, key, 0)
+        return get(clone_lookup.count, key, 0)
+    elseif col === :vdj_count
+        key = (df.lineage_id[ri], df.d_region[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
+        return get(vdj_lookup.lookup, key, 0)
     else
         return df[ri, col]
     end
 end
 
-@inline function get_vdj_count(df, ri, lookup)
-    isnothing(lookup) && return 0
-    key = (df.lineage_id[ri], df.d_region[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-    get(lookup, key, 0)
+@inline function get_value_no_vdj(df, ri::Int, col::Symbol, clone_lookup::CloneFrequencyLookup{K}) where K
+    if col === :sequence_count
+        key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
+        return get(clone_lookup.count, key, 0)
+    else
+        return df[ri, col]
+    end
 end
 
+# Requirement checks via dispatch
 requires_vdj_nt(::MostCommonVdjNtTieBreaker) = true
-requires_vdj_nt(tb::TieBreaker) = any(col == :vdj_count for (col, _) in tb.criteria)
+requires_vdj_nt(tb::TieBreaker) = any(c === :vdj_count for (c, _) in tb.criteria)
 requires_vdj_count(::MostCommonVdjNtTieBreaker) = false
-requires_vdj_count(tb::TieBreaker) = any(col == :vdj_count for (col, _) in tb.criteria)
+requires_vdj_count(tb::TieBreaker) = any(c === :vdj_count for (c, _) in tb.criteria)
 
-# Aggregation types
+# Aggregation types for type-stable dispatch
 struct LineageAggregates
     count_sums::Dict{Int,Int}
     vdj_counts::Dict{Int,Int}
@@ -542,24 +540,23 @@ end
 
 struct NoAggregates end
 
+# Aggregation dispatch on strategy
 function compute_aggregates(::Hardest, df::AbstractDataFrame)
     has_count = hasproperty(df, :count)
     has_vdj = hasproperty(df, :vdj_nt)
     
     count_sums = Dict{Int,Int}()
-    vdj_sets = Dict{Int,Set{String}}()
+    vdj_sets = has_vdj ? Dict{Int,Set{String}}() : Dict{Int,Set{String}}()
     
     lineage_col = df.lineage_id
-    count_col = has_count ? df.count : nothing
-    vdj_col = has_vdj ? df.vdj_nt : nothing
     
     @inbounds for i in 1:nrow(df)
         lid = lineage_col[i]
-        cnt = isnothing(count_col) ? 1 : (ismissing(count_col[i]) ? 0 : count_col[i])
+        cnt = has_count ? (ismissing(df.count[i]) ? 0 : df.count[i]) : 1
         count_sums[lid] = get(count_sums, lid, 0) + cnt
         
-        if !isnothing(vdj_col)
-            vdj = vdj_col[i]
+        if has_vdj
+            vdj = df.vdj_nt[i]
             if !ismissing(vdj)
                 if !haskey(vdj_sets, lid)
                     vdj_sets[lid] = Set{String}()
@@ -575,42 +572,40 @@ end
 
 compute_aggregates(::Soft, ::AbstractDataFrame) = NoAggregates()
 
-function build_collapse_result(df::DataFrame, selected_indices::Vector{Int}, strategy::Hardest,
-                               clone_freq, seq_count, vdj_count_lookup, agg::LineageAggregates)
-    # Slice original df (single allocation)
-    result = df[selected_indices, :]
+# Result building dispatch on strategy and aggregates
+function build_collapse_result(df::DataFrame, selected::Vector{Int}, ::Hardest,
+                               clone_lookup::CloneFrequencyLookup, agg::LineageAggregates)
+    result = df[selected, :]
+    n = length(selected)
     
-    # Add aggregated columns
-    n = length(selected_indices)
     counts = Vector{Int}(undef, n)
-    nvdj = Vector{Union{Missing,Int}}(undef, n)
+    nvdj = Vector{Int}(undef, n)  # Concrete type, use 0 for missing
     has_vdj = !isempty(agg.vdj_counts)
     
     @inbounds for i in 1:n
         lid = result.lineage_id[i]
         counts[i] = get(agg.count_sums, lid, 0)
-        nvdj[i] = has_vdj ? get(agg.vdj_counts, lid, missing) : missing
+        nvdj[i] = has_vdj ? get(agg.vdj_counts, lid, 0) : 0
     end
     
     result[!, :count] = counts
-    result[!, :nVDJ_nt] = nvdj
+    result[!, :nVDJ_nt] = has_vdj ? nvdj : fill(missing, n)
     result
 end
 
-function build_collapse_result(df::DataFrame, selected_indices::Vector{Int}, ::Soft,
-                               clone_freq, seq_count, vdj_count_lookup, ::NoAggregates)
-    result = df[selected_indices, :]
+function build_collapse_result(df::DataFrame, selected::Vector{Int}, ::Soft{T},
+                               clone_lookup::CloneFrequencyLookup{K}, ::NoAggregates) where {T, K}
+    result = df[selected, :]
+    n = length(selected)
     
-    # Add clone_frequency and sequence_count columns
-    n = length(selected_indices)
     freq_vec = Vector{Float64}(undef, n)
     count_vec = Vector{Int}(undef, n)
     
     @inbounds for i in 1:n
-        ri = selected_indices[i]
+        ri = selected[i]
         key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-        freq_vec[i] = clone_freq[key]
-        count_vec[i] = seq_count[key]
+        freq_vec[i] = clone_lookup.freq[key]
+        count_vec[i] = clone_lookup.count[key]
     end
     
     result[!, :clone_frequency] = freq_vec
@@ -624,24 +619,22 @@ end
 Diagnostic function to identify lineages with tied maximum clone frequencies.
 """
 function hardest_tie_summary(df::DataFrame; atol::Real=0.0)
-    clone_freq, _ = compute_clone_frequency_lookup(df)
+    clone_lookup = compute_clone_frequency_lookup(df)
     
     combine(groupby(df, :lineage_id; sort=false)) do group
         rows = parentindices(group)[1]
         
-        # Find max frequency
         mx = 0.0
         for ri in rows
             key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-            f = clone_freq[key]
+            f = clone_lookup.freq[key]
             f > mx && (mx = f)
         end
         
-        # Find tied CDR3s
         tied = String[]
         for ri in rows
             key = (df.d_region[ri], df.lineage_id[ri], df.j_call_first[ri], df.v_call_first[ri], df.cdr3[ri])
-            f = clone_freq[key]
+            f = clone_lookup.freq[key]
             is_tied = atol > 0 ? abs(f - mx) <= atol : f == mx
             is_tied && !(df.cdr3[ri] in tied) && push!(tied, df.cdr3[ri])
         end
