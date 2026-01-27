@@ -1,7 +1,6 @@
 module LineageCollapse
     using CSV
     using DataFrames
-    using ProgressMeter
     using Clustering
     using BioSequences
     using StringDistances

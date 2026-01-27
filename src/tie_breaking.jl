@@ -54,28 +54,3 @@ count across all members of the lineage, then returns the first row with that VD
 Requires columns: `vdj_nt`, `count`
 """
 ByMostCommonVdjNt() = MostCommonVdjNtTieBreaker()
-
-"""
-    select_hardest_candidate(candidates::AbstractDataFrame, tie_breaker::TieBreaker)
-
-Select representative from candidates using TieBreaker sorting criteria.
-Returns the first row after sorting by the specified columns.
-"""
-function select_hardest_candidate(candidates::AbstractDataFrame, tie_breaker::TieBreaker)
-    if isempty(tie_breaker.criteria)
-        return candidates[1:1, :]
-    end
-
-    missing_cols = [
-        col for (col, _) in tie_breaker.criteria
-        if col ∉ propertynames(candidates)
-    ]
-    if !isempty(missing_cols)
-        throw(ArgumentError("Missing required columns for tie breaking: $(join(string.(missing_cols), ", "))."))
-    end
-
-    cols = [col for (col, _) in tie_breaker.criteria]
-    revs = [desc for (_, desc) in tie_breaker.criteria]
-    sorted = sort(candidates, cols, rev=revs)
-    return sorted[1:1, :]
-end

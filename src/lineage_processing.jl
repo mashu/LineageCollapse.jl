@@ -290,13 +290,36 @@ function collapse_lineages(df::DataFrame, strategy::CollapseStrategy=Hardest();
                            tie_breaker::AbstractTieBreaker=ByMostCommonVdjNt(),
                            tie_atol::Real=0.0)
     validate_tie_breaker(tie_breaker, df)
-    
+    collapse_lineages_impl(df, strategy, tie_breaker, Float64(tie_atol))
+end
+
+function collapse_lineages_impl(df::DataFrame, strategy::Hardest, tie_breaker::AbstractTieBreaker, atol::Float64)
     clone_lookup = compute_clone_frequency_lookup(df)
     vdj_lookup = compute_vdj_count_lookup(tie_breaker, df)
-    agg = compute_aggregates(strategy, df)
+    agg = compute_aggregates(df)
     
-    selected = collapse_by_strategy(df, strategy, tie_breaker, Float64(tie_atol), clone_lookup, vdj_lookup)
-    build_collapse_result(df, selected, strategy, clone_lookup, agg)
+    groups = groupby(df, :lineage_id; sort=false)
+    selected = Vector{Int}(undef, length(groups))
+    for (gi, group) in enumerate(groups)
+        rows = parentindices(group)[1]
+        selected[gi] = select_hardest_index(df, rows, tie_breaker, atol, clone_lookup, vdj_lookup)
+    end
+    
+    build_hardest_result(df, selected, agg)
+end
+
+function collapse_lineages_impl(df::DataFrame, strategy::Soft, ::AbstractTieBreaker, ::Float64)
+    clone_lookup = compute_clone_frequency_lookup(df)
+    cutoff = strategy.cutoff
+    
+    indices = Int[]
+    sizehint!(indices, nrow(df) ÷ 2)
+    @inbounds for i in 1:nrow(df)
+        key = (df.d_region[i], df.lineage_id[i], df.j_call_first[i], df.v_call_first[i], df.cdr3[i])::CloneKey
+        clone_lookup.freq[key] >= cutoff && push!(indices, i)
+    end
+    
+    build_soft_result(df, indices, clone_lookup)
 end
 
 # Validation via dispatch
@@ -356,32 +379,6 @@ function compute_vdj_count_lookup_impl(df::DataFrame)
     end
     
     VdjCountLookup(lookup)
-end
-
-# Collapse strategy dispatch
-function collapse_by_strategy(df::DataFrame, ::Hardest, tie_breaker::AbstractTieBreaker, atol::Float64,
-                              clone_lookup::CloneFrequencyLookup, vdj_lookup)
-    groups = groupby(df, :lineage_id; sort=false)
-    selected = Vector{Int}(undef, length(groups))
-    
-    for (gi, group) in enumerate(groups)
-        rows = parentindices(group)[1]
-        selected[gi] = select_hardest_index(df, rows, tie_breaker, atol, clone_lookup, vdj_lookup)
-    end
-    selected
-end
-
-function collapse_by_strategy(df::DataFrame, strategy::Soft, ::AbstractTieBreaker, ::Float64,
-                              clone_lookup::CloneFrequencyLookup, vdj_lookup)
-    cutoff = strategy.cutoff
-    indices = Int[]
-    sizehint!(indices, nrow(df) ÷ 2)
-    
-    @inbounds for i in 1:nrow(df)
-        key = (df.d_region[i], df.lineage_id[i], df.j_call_first[i], df.v_call_first[i], df.cdr3[i])::CloneKey
-        clone_lookup.freq[key] >= cutoff && push!(indices, i)
-    end
-    indices
 end
 
 function select_hardest_index(df::DataFrame, rows::AbstractVector{Int}, 
@@ -514,22 +511,13 @@ end
     end
 end
 
-# Requirement checks via dispatch
-requires_vdj_nt(::MostCommonVdjNtTieBreaker) = true
-requires_vdj_nt(tb::TieBreaker) = any(c === :vdj_count for (c, _) in tb.criteria)
-requires_vdj_count(::MostCommonVdjNtTieBreaker) = false
-requires_vdj_count(tb::TieBreaker) = any(c === :vdj_count for (c, _) in tb.criteria)
-
-# Aggregation types
+# Aggregation for Hardest collapse
 struct LineageAggregates
     count_sums::Dict{Int,Int}
     vdj_counts::Dict{Int,Int}
 end
 
-struct NoAggregates end
-
-# Aggregation dispatch on strategy
-function compute_aggregates(::Hardest, df::AbstractDataFrame)
+function compute_aggregates(df::AbstractDataFrame)
     has_count = hasproperty(df, :count)
     has_vdj = hasproperty(df, :vdj_nt)
     
@@ -558,11 +546,7 @@ function compute_aggregates(::Hardest, df::AbstractDataFrame)
     LineageAggregates(count_sums, vdj_counts)
 end
 
-compute_aggregates(::Soft, ::AbstractDataFrame) = NoAggregates()
-
-# Result building dispatch on strategy
-function build_collapse_result(df::DataFrame, selected::Vector{Int}, ::Hardest,
-                               clone_lookup::CloneFrequencyLookup, agg::LineageAggregates)
+function build_hardest_result(df::DataFrame, selected::Vector{Int}, agg::LineageAggregates)
     result = df[selected, :]
     n = length(selected)
     
@@ -581,8 +565,7 @@ function build_collapse_result(df::DataFrame, selected::Vector{Int}, ::Hardest,
     result
 end
 
-function build_collapse_result(df::DataFrame, selected::Vector{Int}, ::Soft,
-                               clone_lookup::CloneFrequencyLookup, ::NoAggregates)
+function build_soft_result(df::DataFrame, selected::Vector{Int}, clone_lookup::CloneFrequencyLookup)
     result = df[selected, :]
     n = length(selected)
     
