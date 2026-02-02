@@ -176,6 +176,54 @@ ties = hardest_tie_summary(df; atol=0.01)
 filter(:hardest_tied => identity, ties)  # Show only tied lineages
 ```
 
+## Column reference
+
+Meaning and computation of columns added by each stage. The most important is **`count`** (optional input and main abundance output).
+
+### Count (most important)
+
+**Input (optional):** An optional numeric column `count` (e.g. read or UMI count per sequence). If present, it is the *abundance* of that row; if absent, each row is treated as abundance 1. Missing values are treated as 0 when summing.
+
+**Output (Hardest only):** The collapsed result includes a `count` column: for each lineage it is the **sum of the input `count`** over all sequences in that lineage (total lineage abundance). If the input had no `count` column, this equals the number of sequences in the lineage.
+
+**How it is used:** Tie-breakers such as `ByMostCommonVdjNt()` and `ByVdjCount()` use these abundances to select the "most common" VDJ nucleotide sequence or clone (by highest total count). Clone frequency and the Soft strategy use the **number of sequences (rows)** per clone, not the sum of `count`.
+
+### After `preprocess_data`
+
+| Column | Meaning | Computation |
+|--------|---------|-------------|
+| `d_region` | D-region nucleotide sequence | `sequence[v_sequence_end+1:j_sequence_start]` |
+| `v_call_first` | First V-gene allele | First token of `v_call` (before comma) |
+| `j_call_first` | First J-gene allele | First token of `j_call` (before comma) |
+| `vdj_nt` | V–D–J nucleotide sequence | `sequence[v_sequence_start:j_sequence_end]` (only if those columns exist) |
+| `cdr3_length` | CDR3 length | `length(cdr3)` |
+
+### After `process_lineages`
+
+| Column | Meaning | Computation |
+|--------|---------|-------------|
+| `lineage_id` | Lineage identifier | Unique id per (V, J, CDR3 length, cluster) |
+| `cluster` | Cluster within V/J/CDR3-length group | From hierarchical clustering of CDR3 distances |
+| `cluster_size` | Sequences in this cluster | Number of rows in the same cluster |
+| `min_distance` | Min distance to another CDR3 in cluster | Smallest pairwise distance to another sequence in the cluster |
+| `cdr3_count` | How many sequences share this CDR3 in the cluster | Number of rows with same CDR3 in same cluster |
+| `max_cdr3_count` | Max `cdr3_count` in this cluster | Maximum of `cdr3_count` over the cluster |
+| `cdr3_frequency` | Relative frequency of this CDR3 in cluster | `cdr3_count / max_cdr3_count` (0–1) |
+
+### After `collapse_lineages` with Hardest
+
+| Column | Meaning | Computation |
+|--------|---------|-------------|
+| `count` | **Total lineage abundance** | Sum of input `count` (or 1 per row if no input `count`) over all sequences in the lineage — see "Count (most important)" above |
+| `nVDJ_nt` | Number of unique VDJ nucleotide sequences in lineage | Count of distinct `vdj_nt` in the lineage (or `missing` if no `vdj_nt`) |
+
+### After `collapse_lineages` with Soft
+
+| Column | Meaning | Computation |
+|--------|---------|-------------|
+| `clone_frequency` | Fraction of lineage (by row count) in this clone | Number of sequences (rows) in this clone ÷ total sequences in the lineage |
+| `sequence_count` | Number of sequences in this clone | Number of rows with same (d_region, lineage_id, v_call_first, j_call_first, cdr3) |
+
 For detailed function signatures and options, see the API Reference below.
 
 ```@index

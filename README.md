@@ -69,6 +69,8 @@ LineageCollapse.jl requires input data to be in AIRR-C (Adaptive Immune Receptor
 - j_call
 - stop_codon
 
+Optional: `count` (abundance per sequence; used for tie-breaking and, with Hardest, output lineage total), `vdj_nt` (for tie-breakers like `ByMostCommonVdjNt()`). For the meaning and computation of all columns added by the pipeline, see the [documentation](https://mashu.github.io/LineageCollapse.jl/dev/).
+
 ## Tie-Breaking
 
 When multiple clones have the same maximum frequency in `Hardest()` mode, a tie-breaker selects the representative:
