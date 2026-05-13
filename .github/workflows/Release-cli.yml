@@ -1,0 +1,70 @@
+# Build the PackageCompiler app and attach a tarball to the GitHub Release that triggered this workflow.
+# Requires: publish a GitHub Release (e.g. after TagBot tags a version). Assets appear on that release page.
+
+name: Release CLI (Linux x64)
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-cli-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x64:
+    name: PackageCompiler app (Ubuntu)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install compilers (PackageCompiler)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: "1.10"
+          arch: x64
+
+      - uses: julia-actions/cache@v2
+
+      - name: Build lineage-collapse app
+        run: julia --project=cli cli/build.jl --force
+
+      - name: Smoke test binary
+        run: |
+          set +e
+          ./build/lineage-collapse/bin/lineage-collapse 2>/dev/null
+          test $? -eq 1
+          ./build/lineage-collapse/bin/lineage-collapse --help | head -n 5
+
+      - name: Pack archive
+        id: pack
+        shell: bash
+        run: |
+          VERSION="$(julia -e 'import TOML; print(TOML.parsefile("Project.toml")["version"])')"
+          NAME="lineage-collapse-linux-x86_64-v${VERSION}.tar.gz"
+          tar -czf "$NAME" -C build lineage-collapse
+          echo "archive=$NAME" >> "$GITHUB_OUTPUT"
+          ls -lh "$NAME"
+
+      - name: Upload tarball to Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.archive }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload workflow artifact (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lineage-collapse-linux-x86_64
+          path: ${{ steps.pack.outputs.archive }}

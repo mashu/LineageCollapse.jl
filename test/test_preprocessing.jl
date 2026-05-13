@@ -2,6 +2,25 @@ using Test
 using DataFrames
 using LineageCollapse
 
+function minimal_preprocess_df(; count::Union{Nothing,Vector{Int}}=nothing)
+    df = DataFrame(
+        sequence_id = ["s1", "s2"],
+        sequence = ["ATCGATCGAT", "ATCGATCGAT"],
+        v_call = ["IGHV1-1*01", "IGHV1-1*01"],
+        j_call = ["IGHJ1*01", "IGHJ1*01"],
+        cdr3 = ["CGAT", "CGAT"],
+        v_sequence_end = [3, 3],
+        j_sequence_start = [6, 6],
+        v_sequence_start = [1, 1],
+        j_sequence_end = [10, 10],
+        stop_codon = [false, false],
+    )
+    if !isnothing(count)
+        df[!, :count] = count
+    end
+    return df
+end
+
 @testset "Preprocessing" begin
     @testset "preprocess_data function" begin
         # Create a sample DataFrame for testing
@@ -70,6 +89,23 @@ using LineageCollapse
         @test nrow(result) == 1
         @test result.sequence_id == ["seq2"]
         @test result.d_region == ["GAAT"]
+    end
+
+    @testset "count column: warn when max > 1; rename option" begin
+        df_warn = minimal_preprocess_df(count=[5, 10])
+        @test_warn r"summed across lineage members" preprocess_data(copy(df_warn))
+
+        df_one = minimal_preprocess_df(count=[1, 1])
+        warn_logs, _ = Test.collect_test_logs(min_level=Base.CoreLogging.Warn) do
+            preprocess_data(copy(df_one))
+        end
+        @test isempty(warn_logs)
+
+        df_rename = minimal_preprocess_df(count=[5, 10])
+        out = preprocess_data(df_rename; rename_count_to_consensus_reads=true)
+        @test :count ∉ propertynames(out)
+        @test :consensus_reads ∈ propertynames(out)
+        @test out.consensus_reads == [5, 10]
     end
 
     @testset "preprocess_data with all invalid data" begin

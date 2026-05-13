@@ -113,13 +113,15 @@ my_breaker = TieBreaker([:my_column => true, :cdr3 => false])
 
 | Function | Strategy |
 |----------|----------|
-| `ByMostCommonVdjNt()` | Most common VDJ nucleotide sequence (igdiscover-compatible) |
-| `ByVdjCount()` | Highest VDJ count, then lexicographic CDR3 |
+| `ByMostCommonVdjNt()` | Most common `vdj_nt` by **lineage-wide** summed `count` (igdiscover-style); see note below vs `ByVdjCount` |
+| `ByVdjCount()` | Among **max-frequency** candidates, highest **per-clone** `vdj_count`, then lexicographic `cdr3` |
 | `ByCdr3Count()` | Highest CDR3 count, then lexicographic CDR3 |
 | `BySequenceCount()` | Highest sequence count, then lexicographic CDR3 |
 | `ByMostNaive()` | Highest V/J identity (closest to germline) |
 | `ByLexicographic()` | Lexicographically smallest CDR3 |
 | `ByFirst()` | First candidate (no sorting) |
+
+**`ByMostCommonVdjNt()` vs `ByVdjCount()`:** `ByMostCommonVdjNt()` pools every row in the lineage to decide which `vdj_nt` has the largest total abundance, then picks the first row with that sequence (that row need not be on a maximum-frequency clone). `ByVdjCount()` only compares rows already tied at **maximum clone frequency** and ranks them using a score computed **inside each clone**: the maximum, over distinct `vdj_nt` in the clone, of the summed `count` for that `vdj_nt`. Use the first for igdiscover parity; use the second when the representative must be drawn from the top-frequency clone set with a local VDJ-based score.
 
 Tie-breakers can be combined: `ByVdjCount() + ByLexicographic()`
 
@@ -186,7 +188,7 @@ Meaning and computation of columns added by each stage. The most important is **
 
 **Output (Hardest only):** The collapsed result includes a `count` column: for each lineage it is the **sum of the input `count`** over all sequences in that lineage (total lineage abundance). If the input had no `count` column, this equals the number of sequences in the lineage.
 
-**How it is used:** Tie-breakers such as `ByMostCommonVdjNt()` and `ByVdjCount()` use these abundances to select the "most common" VDJ nucleotide sequence or clone (by highest total count). Clone frequency and the Soft strategy use the **number of sequences (rows)** per clone, not the sum of `count`.
+**How it is used:** `ByMostCommonVdjNt()` and `ByVdjCount()` use summed `count` when ranking `vdj_nt` choices (see **Built-in Tie-Breakers** above for how they differ). Clone frequency and the Soft strategy use the **number of sequences (rows)** per clone, not the sum of `count`.
 
 ### After `preprocess_data`
 
@@ -224,7 +226,37 @@ Meaning and computation of columns added by each stage. The most important is **
 | `clone_frequency` | Fraction of lineage (by row count) in this clone | Number of sequences (rows) in this clone ÷ total sequences in the lineage |
 | `sequence_count` | Number of sequences in this clone | Number of rows with same (d_region, lineage_id, v_call_first, j_call_first, cdr3) |
 
-For detailed function signatures and options, see the API Reference below.
+## Command-line interface
+
+A standalone CLI (`lineage-collapse`) lives under [`cli/`](https://github.com/mashu/LineageCollapse.jl/tree/main/cli) in the source tree. It reads one TSV (or gzip-compressed TSV), applies optional column filters, runs the same preprocessing and lineage pipeline as the Julia API, and writes collapsed output.
+
+**Build a binary** (from a clone of the repository):
+
+```bash
+julia --project=cli cli/build.jl --force
+```
+
+The app is created under `build/lineage-collapse/`; the executable is `build/lineage-collapse/bin/lineage-collapse`.
+
+**Threads:** set `JULIA_NUM_THREADS` (e.g. `auto`) before launching the binary so `process_lineages` can use multiple threads.
+
+**Run without building** (same arguments as the binary):
+
+```bash
+julia --project=cli -e 'using LineageCollapseCLI; LineageCollapseCLI.main(ARGS)' -- path/to/input.tsv.gz -o out.tsv
+```
+
+**Reference and examples:** every flag, defaults, example data paths, and usage patterns are documented in [cli/README.md](https://github.com/mashu/LineageCollapse.jl/blob/main/cli/README.md) in the repository.
+
+**Linux binary:** each published GitHub Release can include a prebuilt `lineage-collapse` app tarball built by [`.github/workflows/Release-cli.yml`](https://github.com/mashu/LineageCollapse.jl/blob/main/.github/workflows/Release-cli.yml) (Linux x86_64). Download the asset from the release page, unpack, and run `bin/lineage-collapse`.
+
+**Regression driver** for CLI options (pass any AIRR-style TSV or `.gz`):
+
+```bash
+julia --project=cli cli/test_options_smoke.jl path/to/example.tsv.gz
+```
+
+For detailed function signatures and options of the Julia API, see the API Reference below.
 
 ```@index
 ```

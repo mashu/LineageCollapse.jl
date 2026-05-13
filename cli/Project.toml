@@ -1,0 +1,21 @@
+name = "LineageCollapseCLI"
+uuid = "7be1d1c6-e33d-40e9-bf7d-37bd312b7d4e"
+authors = ["Mateusz Kaduk <mateusz.kaduk@gmail.com> and contributors"]
+version = "0.1.1"
+
+[deps]
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+LineageCollapse = "e38bdfdf-80f5-4f0c-93e0-53dd02ee37b8"
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+PackageCompiler = "9b87118b-4619-50d2-8e1e-99f35a4d4d9d"
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"
+
+[compat]
+ArgParse = "1"
+CSV = "0.10"
+DataFrames = "1"
+PackageCompiler = "2"
+PrecompileTools = "1"
+julia = "1.10"

@@ -48,6 +48,10 @@ collapsed = collapse_lineages(lineages, Hardest())
 # collapsed = collapse_lineages(lineages, Soft(0.2))
 ```
 
+## Command-line tool
+
+A standalone CLI (`lineage-collapse`) lives under [`cli/`](cli/). It reads one TSV (or gzip-compressed TSV), applies optional column filters, runs the same preprocessing and lineage pipeline as the Julia API, and writes collapsed output.
+
 ## Key Concepts
 
 | Term | Description |

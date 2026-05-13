@@ -36,13 +36,15 @@ end
 """
     MostCommonVdjNtTieBreaker
 
-A tie-breaker that selects the representative based on the most common VDJ_nt
-sequence weighted by count, matching igdiscover's clonotypes behavior.
+Tie-breaker that picks a representative by **lineage-wide** abundance of each `vdj_nt`
+(igdiscover-style): sum `count` for every distinct `vdj_nt` across **all rows in the lineage**,
+take the `vdj_nt` with the largest total, then return the **first** row in the lineage that carries
+that `vdj_nt`.
 
-For each lineage, it:
-1. Sums the `count` for each unique `vdj_nt` sequence
-2. Selects the `vdj_nt` with the highest total count
-3. Returns the first row with that `vdj_nt`
+This is **not** the same as `ByVdjCount()`: the latter only compares rows that are already
+tied at **maximum clone frequency** and uses a **per-clone** score (see `ByVdjCount()` docstring).
+Because `MostCommonVdjNt` looks at the whole lineage, the chosen row need not belong to a
+maximum-frequency clone if a rarer clone's `vdj_nt` wins the lineage-wide sum.
 """
 struct MostCommonVdjNtTieBreaker <: AbstractTieBreaker end
 
@@ -51,7 +53,17 @@ Base.:+(a::TieBreaker, b::TieBreaker) = TieBreaker(vcat(a.criteria, b.criteria))
 """
     ByVdjCount()
 
-Tie-breaker that selects by highest VDJ nucleotide count, then lexicographic CDR3.
+Tie-breaker for `Hardest()` when several **clones** share the same top clone frequency:
+among those **candidate rows only**, prefer the larger **`vdj_count`** (then lexicographically
+smaller `cdr3`).
+
+Here `vdj_count` is computed **per clone** `(lineage_id, d_region, j_call_first, v_call_first, cdr3)`:
+within that clone, group rows by `vdj_nt`, sum `count` (or count rows if there is no `count`
+column), and take the **maximum** of those per-`vdj_nt` sums. That single number is the clone's
+`vdj_count` score for every row in the clone.
+
+Contrast with `ByMostCommonVdjNt()`, which sums `vdj_nt` across the **entire lineage** and
+may return a row that is **not** among the maximum-frequency clones.
 """
 ByVdjCount() = TieBreaker([:vdj_count => true, :cdr3 => false])
 
@@ -100,11 +112,11 @@ ByMostNaive() = TieBreaker([
 """
     ByMostCommonVdjNt()
 
-Create a tie-breaker that matches igdiscover's clonotypes representative selection.
+Create a tie-breaker that matches igdiscover's clonotypes representative selection: choose the
+`vdj_nt` with the highest **lineage-wide** summed `count`, then return the first row with that
+`vdj_nt`. See the `MostCommonVdjNtTieBreaker` docstring and compare with `ByVdjCount()`.
 
-Selects the representative by finding the VDJ_nt sequence with the highest total
-count across all members of the lineage, then returns the first row with that VDJ_nt.
-
-Requires columns: `vdj_nt`, `count`
+Requires `vdj_nt`. If a `count` column is present, it is used as row weight; otherwise each row
+counts as 1.
 """
 ByMostCommonVdjNt() = MostCommonVdjNtTieBreaker()
