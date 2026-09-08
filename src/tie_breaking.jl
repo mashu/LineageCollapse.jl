@@ -36,17 +36,37 @@ end
 """
     MostCommonVdjNtTieBreaker
 
-Tie-breaker that picks a representative by **lineage-wide** abundance of each `vdj_nt`
-(igdiscover-style): sum `count` for every distinct `vdj_nt` across **all rows in the lineage**,
-take the `vdj_nt` with the largest total, then return the **first** row in the lineage that carries
-that `vdj_nt`.
+Among the **candidate rows already selected by `Hardest()`** (maximum clone frequency),
+pick the `vdj_nt` with the largest summed abundance, then a deterministic secondary key.
 
-This is **not** the same as `ByVdjCount()`: the latter only compares rows that are already
-tied at **maximum clone frequency** and uses a **per-clone** score (see `ByVdjCount()` docstring).
-Because `MostCommonVdjNt` looks at the whole lineage, the chosen row need not belong to a
-maximum-frequency clone if a rarer clone's `vdj_nt` wins the lineage-wide sum.
+This is **not** IgDiscover's representative rule. IgDiscover sums `vdj_nt` over the
+**entire lineage** and, for lineages of size ≤ 2, returns the first row. Use
+`ByLineageMostCommonVdjNt()` or `IgDiscover()` for that behaviour.
 """
 struct MostCommonVdjNtTieBreaker <: AbstractTieBreaker end
+
+"""
+    LineageMostCommonVdjNtTieBreaker
+
+IgDiscover-style representative: sum abundance for each `vdj_nt` across **all rows in
+the lineage**, take the `vdj_nt` with the largest total, return the first row that carries
+it.
+
+If `small_lineage_first_row` is true (IgDiscover's `representative()`), lineages with
+one or two rows skip the abundance calculation and return the first row in input order.
+"""
+struct LineageMostCommonVdjNtTieBreaker <: AbstractTieBreaker
+    small_lineage_first_row::Bool
+end
+
+"""
+    LowestVShmTieBreaker
+
+Select the row with the lowest `V_SHM` (least-mutated V) among **all lineage members**.
+Ties: higher abundance, then lexicographically smaller `vdj_nt`, then smaller `cdr3`.
+Missing `V_SHM` is treated as worst (largest).
+"""
+struct LowestVShmTieBreaker <: AbstractTieBreaker end
 
 Base.:+(a::TieBreaker, b::TieBreaker) = TieBreaker(vcat(a.criteria, b.criteria))
 
@@ -58,12 +78,10 @@ among those **candidate rows only**, prefer the larger **`vdj_count`** (then lex
 smaller `cdr3`).
 
 Here `vdj_count` is computed **per clone** `(lineage_id, d_region, j_call_first, v_call_first, cdr3)`:
-within that clone, group rows by `vdj_nt`, sum `count` (or count rows if there is no `count`
-column), and take the **maximum** of those per-`vdj_nt` sums. That single number is the clone's
-`vdj_count` score for every row in the clone.
+within that clone, group rows by `vdj_nt`, sum abundance, and take the **maximum** of those
+per-`vdj_nt` sums. That single number is the clone's `vdj_count` score for every row in the clone.
 
-Contrast with `ByMostCommonVdjNt()`, which sums `vdj_nt` across the **entire lineage** and
-may return a row that is **not** among the maximum-frequency clones.
+Contrast with `ByLineageMostCommonVdjNt()`, which sums `vdj_nt` across the **entire lineage**.
 """
 ByVdjCount() = TieBreaker([:vdj_count => true, :cdr3 => false])
 
@@ -85,13 +103,17 @@ BySequenceCount() = TieBreaker([:sequence_count => true, :cdr3 => false])
     ByLexicographic()
 
 Tie-breaker that selects by lexicographically smallest CDR3.
+Deterministic and permutation-invariant.
 """
 ByLexicographic() = TieBreaker([:cdr3 => false])
 
 """
     ByFirst()
 
-Tie-breaker that selects the first candidate (no sorting).
+Tie-breaker that selects the first candidate in **current row order**.
+
+Results therefore depend on input ordering (parallel concatenations, unsorted files,
+nondeterministic queries). Prefer `ByLexicographic()` when reproducibility is required.
 """
 ByFirst() = TieBreaker(Pair{Symbol,Bool}[])
 
@@ -112,11 +134,31 @@ ByMostNaive() = TieBreaker([
 """
     ByMostCommonVdjNt()
 
-Create a tie-breaker that matches igdiscover's clonotypes representative selection: choose the
-`vdj_nt` with the highest **lineage-wide** summed `count`, then return the first row with that
-`vdj_nt`. See the `MostCommonVdjNtTieBreaker` docstring and compare with `ByVdjCount()`.
+Among **maximum clone-frequency candidates**, choose the `vdj_nt` with the highest summed
+abundance, then the lexicographically smallest `vdj_nt`. Requires `vdj_nt`.
 
-Requires `vdj_nt`. If a `count` column is present, it is used as row weight; otherwise each row
-counts as 1.
+This operates only on `Hardest()` candidates. For lineage-wide IgDiscover-style selection
+use `ByLineageMostCommonVdjNt()` or `collapse_lineages(df, IgDiscover())`.
 """
 ByMostCommonVdjNt() = MostCommonVdjNtTieBreaker()
+
+"""
+    ByLineageMostCommonVdjNt(; small_lineage_first_row=false)
+
+Choose the `vdj_nt` with the highest **lineage-wide** summed abundance, then the first row
+with that `vdj_nt`.
+
+`small_lineage_first_row=true` reproduces IgDiscover's `n <= 2` shortcut (first row,
+ignoring abundance). That shortcut is order-dependent.
+"""
+ByLineageMostCommonVdjNt(; small_lineage_first_row::Bool=false) =
+    LineageMostCommonVdjNtTieBreaker(small_lineage_first_row)
+
+"""
+    ByLowestVShm()
+
+Select the least-mutated V sequence (`minimum V_SHM`) from the **whole lineage**.
+Requires a `V_SHM` column. Not the same as IgDiscover's clonotype representative
+(IgDiscover uses most-common `VDJ_nt`; `V_SHM` is used there for `_mindiffrate` only).
+"""
+ByLowestVShm() = LowestVShmTieBreaker()

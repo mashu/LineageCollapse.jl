@@ -64,7 +64,7 @@ using LineageCollapse
         write(test_file, test_data)
 
         # Test that loading data with missing columns throws an error
-        @test_throws Exception load_data(test_file)
+        @test_throws ArgumentError load_data(test_file)
 
         # Clean up
         rm(test_file)

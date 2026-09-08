@@ -43,14 +43,15 @@ The library follows a linear pipeline where each stage transforms your data:
 │  │    3. Assign lineage_id to each cluster                              │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
 └──────────┬─────────────────────────────────────────────────────────────────┘
-           │ DataFrame + lineage_id, cluster, cluster_size, cdr3_frequency
+           │ DataFrame + lineage_id, cluster, cluster_size, relative_to_max_cdr3
            ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
 │  collapse_lineages(df, strategy)                                           │
 │  ┌──────────────────────────────────────────────────────────────────────┐  │
 │  │  CollapseStrategy determines output:                                 │  │
-│  │    • Hardest() → one representative per lineage                      │  │
-│  │    • Soft(cutoff) → all clones above frequency threshold             │  │
+│  │    • Hardest() → one representative from max-frequency clones          │  │
+│  │    • IgDiscover() → IgDiscover clonotypes representative               │  │
+│  │    • Soft(cutoff) → all clones above frequency threshold                  │  │
 │  │                                                                      │  │
 │  │  AbstractTieBreaker resolves ties when selecting representatives     │  │
 │  └──────────────────────────────────────────────────────────────────────┘  │
@@ -68,8 +69,8 @@ The library uses Julia's multiple dispatch with abstract types for extensibility
 AbstractDistanceMetric           ClusteringMethod              CollapseStrategy
          │                              │                             │
          ├── HammingDistance            └── HierarchicalClustering    ├── Hardest
-         ├── NormalizedHammingDistance          │                     └── Soft
-         └── LevenshteinDistance                └── cutoff::Float
+         ├── NormalizedHammingDistance          │                     ├── IgDiscover
+         └── LevenshteinDistance                └── cutoff::Float         └── Soft
                                                                            │
                                                                            │
 AbstractTieBreaker ◄───────────────────────────────────────────────────────┘
@@ -77,7 +78,9 @@ AbstractTieBreaker ◄───────────────────�
          ├── TieBreaker
          │       └── criteria::Vector{Pair{Symbol,Bool}}
          │
-         └── MostCommonVdjNtTieBreaker
+         ├── MostCommonVdjNtTieBreaker
+         ├── LineageMostCommonVdjNtTieBreaker
+         └── LowestVShmTieBreaker
 ```
 
 ### Extension Points
@@ -113,15 +116,21 @@ my_breaker = TieBreaker([:my_column => true, :cdr3 => false])
 
 | Function | Strategy |
 |----------|----------|
-| `ByMostCommonVdjNt()` | Most common `vdj_nt` by **lineage-wide** summed `count` (igdiscover-style); see note below vs `ByVdjCount` |
+| `ByMostCommonVdjNt()` | Most common `vdj_nt` among **maximum clone-frequency** candidates |
+| `ByLineageMostCommonVdjNt()` | Most common `vdj_nt` by **lineage-wide** summed abundance (IgDiscover-style) |
+| `ByLowestVShm()` | Lowest `V_SHM` among all lineage members, then abundance, then `vdj_nt` |
 | `ByVdjCount()` | Among **max-frequency** candidates, highest **per-clone** `vdj_count`, then lexicographic `cdr3` |
 | `ByCdr3Count()` | Highest CDR3 count, then lexicographic CDR3 |
 | `BySequenceCount()` | Highest sequence count, then lexicographic CDR3 |
 | `ByMostNaive()` | Highest V/J identity (closest to germline) |
-| `ByLexicographic()` | Lexicographically smallest CDR3 |
-| `ByFirst()` | First candidate (no sorting) |
+| `ByLexicographic()` | Lexicographically smallest CDR3 (permutation-invariant) |
+| `ByFirst()` | First candidate in current row order (order-dependent) |
 
-**`ByMostCommonVdjNt()` vs `ByVdjCount()`:** `ByMostCommonVdjNt()` pools every row in the lineage to decide which `vdj_nt` has the largest total abundance, then picks the first row with that sequence (that row need not be on a maximum-frequency clone). `ByVdjCount()` only compares rows already tied at **maximum clone frequency** and ranks them using a score computed **inside each clone**: the maximum, over distinct `vdj_nt` in the clone, of the summed `count` for that `vdj_nt`. Use the first for igdiscover parity; use the second when the representative must be drawn from the top-frequency clone set with a local VDJ-based score.
+**`Hardest()` vs `IgDiscover()`:** `Hardest()` first restricts to clones with maximum clone frequency (row fraction in the lineage), then applies the tie-breaker. `ByMostCommonVdjNt()` therefore cannot pick a minority clone. `IgDiscover()` matches IgDiscover's `representative()`: for lineages of size ≤ 2 it returns the first row; otherwise it picks the first row whose `vdj_nt` has the largest lineage-wide summed `count`. IgDiscover uses `V_SHM` only for `_mindiffrate` columns, not for the clonotype representative; use `ByLowestVShm()` if you want least-mutated V as the representative.
+
+**Single linkage:** default clustering puts two CDR3s in the same lineage if they are connected by a path of pairwise distances ≤ threshold, not only if every pair is within the threshold.
+
+**Count:** `collapse_lineages` treats `count` as additive unless you pass `abundance=:rows`. Missing `count` is 1 (the row still exists). If `count` is consensus-level abundance, rename it in preprocessing instead of summing it.
 
 Tie-breakers can be combined: `ByVdjCount() + ByLexicographic()`
 
@@ -145,16 +154,20 @@ df = preprocess_data(df; min_d_region_length=3)
 lineages = process_lineages(df, 1)
 
 # Collapse options:
-# Option A: One representative per lineage
+# Option A: One representative from the dominant clone
 result = collapse_lineages(lineages, Hardest())
 
-# Option B: Keep clones with frequency ≥ 20%
+# Option B: IgDiscover clonotypes representative
+# result = collapse_lineages(lineages, IgDiscover())
+
+# Option C: Keep clones with frequency ≥ 20%
 result = collapse_lineages(lineages, Soft(0.2))
 
-# Option C: Custom tie-breaking
-result = collapse_lineages(lineages, Hardest(); 
+# Option D: Custom tie-breaking
+result = collapse_lineages(lineages, Hardest();
                            tie_breaker=ByMostNaive(),
-                           tie_atol=0.01)  # 1% tolerance
+                           tie_atol=0.01,
+                           abundance=:count)
 ```
 
 ## Detailed Examples
@@ -210,7 +223,7 @@ Meaning and computation of columns added by each stage. The most important is **
 | `min_distance` | Min distance to another CDR3 in cluster | Smallest pairwise distance to another sequence in the cluster |
 | `cdr3_count` | How many sequences share this CDR3 in the cluster | Number of rows with same CDR3 in same cluster |
 | `max_cdr3_count` | Max `cdr3_count` in this cluster | Maximum of `cdr3_count` over the cluster |
-| `cdr3_frequency` | Relative frequency of this CDR3 in cluster | `cdr3_count / max_cdr3_count` (0–1) |
+| `relative_to_max_cdr3` | CDR3 count relative to the most abundant CDR3 in the cluster | `cdr3_count / max_cdr3_count` (not a conventional frequency; clone frequency is `clone_frequency` after Soft collapse) |
 
 ### After `collapse_lineages` with Hardest
 

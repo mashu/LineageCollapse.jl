@@ -12,7 +12,7 @@ LineageCollapse.jl is a high-performance Julia package for performing soft linea
 ## Features
 
 - Fast and memory-efficient processing of large-scale immune repertoire data
-- Multiple collapse strategies: `Hardest()` (one representative per lineage) and `Soft(cutoff)` (frequency threshold)
+- Multiple collapse strategies: `Hardest()` (highest clone frequency), `IgDiscover()` (IgDiscover clonotypes representative), and `Soft(cutoff)` (frequency threshold)
 - Configurable distance metrics: Hamming, Normalized Hamming, Levenshtein
 - Extensible tie-breaking system for representative selection
 - Supports AIRR-compliant input data formats
@@ -41,8 +41,11 @@ lineages = process_lineages(preprocessed_df, 1)
 # Or use a mismatch fraction of CDR3 length (0.1 = 10%)
 # lineages = process_lineages(preprocessed_df, 0.1)
 
-# Collapse to one representative per lineage (Hardest)
+# Collapse to one representative per lineage (Hardest: max clone frequency, then most common VDJ among those clones)
 collapsed = collapse_lineages(lineages, Hardest())
+
+# IgDiscover-compatible representative (lineage-wide most common VDJ_nt, including the n≤2 first-row rule)
+# collapsed = collapse_lineages(lineages, IgDiscover())
 
 # Or keep clones with frequency ≥ 20% (Soft)
 # collapsed = collapse_lineages(lineages, Soft(0.2))
@@ -59,7 +62,8 @@ A standalone CLI (`lineage-collapse`) lives under [`cli/`](cli/). It reads one T
 | **Lineage** | Sequences grouped by V-gene, J-gene, CDR3 length, and clustered by CDR3 similarity |
 | **Clone** | Unique combination of D-region + V + J + CDR3 within a lineage |
 | **Clone Frequency** | Proportion of sequences in a lineage belonging to a clone |
-| **Hardest** | Collapse strategy: one representative per lineage (highest frequency) |
+| **Hardest** | Collapse strategy: one representative from the maximum clone-frequency clone(s) |
+| **IgDiscover** | Collapse strategy: IgDiscover `clonotypes` representative (lineage-wide most common VDJ) |
 | **Soft** | Collapse strategy: keep all clones above a frequency threshold |
 
 ## Input Requirements
@@ -82,25 +86,30 @@ Optional: `count` (abundance per sequence; used for tie-breaking and, with Harde
 When multiple clones have the same maximum frequency in `Hardest()` mode, a tie-breaker selects the representative:
 
 ```julia
-# Default: most common VDJ nucleotide sequence (igdiscover-compatible)
+# Default: most common VDJ among maximum-frequency clones
 collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByMostCommonVdjNt())
 
-# Alternative: prioritize sequences closest to germline
-collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByMostNaive())
+# IgDiscover clonotypes.representative() (whole lineage, plus n≤2 first-row shortcut)
+collapsed = collapse_lineages(lineages, IgDiscover())
+
+# Least-mutated V sequence in the lineage
+collapsed = collapse_lineages(lineages, Hardest(); tie_breaker=ByLowestVShm())
 
 # With frequency tolerance (1% tolerance for "tied" clones)
 collapsed = collapse_lineages(lineages, Hardest(); tie_atol=0.01)
 ```
 
-Available tie-breakers: `ByMostCommonVdjNt()`, `ByVdjCount()`, `ByCdr3Count()`, `BySequenceCount()`, `ByMostNaive()`, `ByLexicographic()`, `ByFirst()`
+Available tie-breakers: `ByMostCommonVdjNt()`, `ByLineageMostCommonVdjNt()`, `ByLowestVShm()`, `ByVdjCount()`, `ByCdr3Count()`, `BySequenceCount()`, `ByMostNaive()`, `ByLexicographic()`, `ByFirst()`
+
+`ByFirst()` depends on input row order. Prefer `ByLexicographic()` when results must be permutation-invariant.
 
 ## Algorithm Overview
 
 1. **Grouping**: Sequences are grouped by `v_call`, `j_call`, and `cdr3_length`.
-2. **Distance Calculation**: Pairwise distances are computed between CDR3 sequences within each group (Hamming, Normalized Hamming, or Levenshtein).
-3. **Clustering**: Hierarchical clustering (default: single linkage) is performed on the distance matrix.
-4. **Cluster Formation**: Clusters are formed by cutting the dendrogram at the specified threshold. Lower values create more clusters, higher values fewer clusters.
-5. **Collapsing**: Representatives are selected per lineage (`Hardest`) or clones above a frequency threshold are retained (`Soft`).
+2. **Distance Calculation**: Pairwise distances are computed between CDR3 sequences within each group (Hamming, Normalized Hamming, or Levenshtein). Hamming/normalized Hamming require equal lengths.
+3. **Clustering**: Default **single linkage** (connected components). Sequences A and C can share a lineage through a chain A—B—C even if A and C themselves exceed the threshold. Use `:complete` if every pair must be within the threshold. Levenshtein cannot join different CDR3 lengths because grouping is by exact length.
+4. **Cluster Formation**: Clusters are formed by cutting at the specified threshold.
+5. **Collapsing**: `Hardest` picks a max-frequency clone then a tie-breaker; `IgDiscover` matches IgDiscover's representative rule; `Soft` keeps clones above a frequency threshold.
 
 ## Benchmark
 

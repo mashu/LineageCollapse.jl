@@ -43,12 +43,14 @@ function smoke_main(argv::Vector{String})
     run_case("cdr3-similarity-percent", vcat(base, ["--cdr3-similarity-percent", "88", "-o", out()]))
     run_case("linkage complete", vcat(base, ["--linkage", "complete", "-o", out()]))
     run_case("linkage average", vcat(base, ["--linkage", "average", "-o", out()]))
-    run_case("collapse soft", vcat(base, ["--collapse", "soft", "--soft-cutoff", "0.4", "-o", out()]))
+    run_case("collapse igdiscover", vcat(base, ["--collapse", "igdiscover", "-o", out()]))
+    run_case("abundance rows", vcat(base, ["--abundance", "rows", "-o", out()]))
     pout = proc_path()
     run_case("processed-output", vcat(base, ["--processed-output", pout, "-o", out()]))
 
     for tb in (
         "most-common-vdj-nt",
+        "lineage-most-common-vdj-nt",
         "vdj-count",
         "cdr3-count",
         "sequence-count",

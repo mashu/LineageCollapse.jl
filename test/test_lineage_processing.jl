@@ -56,7 +56,7 @@ using LinearAlgebra
         @test :cluster in propertynames(result)
         @test :cluster_size in propertynames(result)
         @test :cdr3_count in propertynames(result)
-        @test :cdr3_frequency in propertynames(result)
+        @test :relative_to_max_cdr3 in propertynames(result)
 
         # Check if sequences with the same V and J genes are grouped together
         @test result[result.v_call_first .== "V1", :lineage_id] == result[result.v_call_first .== "V1", :lineage_id]

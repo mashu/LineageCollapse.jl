@@ -84,7 +84,7 @@ end
             stop_codon = [false, false]
         )
 
-        result = preprocess_data(df, min_d_region_length=3)
+        result = preprocess_data(df, min_d_region_length=4)
 
         @test nrow(result) == 1
         @test result.sequence_id == ["seq2"]

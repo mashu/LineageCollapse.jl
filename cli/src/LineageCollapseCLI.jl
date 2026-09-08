@@ -5,7 +5,6 @@ using CSV
 using DataFrames
 using LineageCollapse
 using Logging
-using PrecompileTools
 
 export main, julia_main, run_pipeline
 
@@ -38,6 +37,7 @@ struct CliConfig{T<:Real}
     soft_cutoff::Float64
     tie_breaker::String
     tie_atol::Float64
+    abundance::Symbol
     processed_output::Union{Nothing,String}
     quiet::Bool
 end
@@ -52,9 +52,11 @@ const FILTER_OPERATORS = [
     ">" => GreaterThan,
 ]
 const LINKAGES = Set([:single, :complete, :average])
-const COLLAPSE_STRATEGIES = Set(["hardest", "soft"])
+const COLLAPSE_STRATEGIES = Set(["hardest", "soft", "igdiscover"])
 const TIE_BREAKERS = Set([
     "most-common-vdj-nt",
+    "lineage-most-common-vdj-nt",
+    "lowest-v-shm",
     "vdj-count",
     "cdr3-count",
     "sequence-count",
@@ -97,7 +99,7 @@ function build_parser()
             help = "Column name used when renaming an existing count column."
             default = "consensus_count"
         "--min-d-region-length"
-            help = "Drop rows whose inferred D region length is not greater than this value."
+            help = "Drop rows whose inferred D region length is strictly less than this value (inclusive minimum)."
             arg_type = Int
             default = nothing
         "--deduplicate"
@@ -122,7 +124,7 @@ function build_parser()
             help = "Hierarchical clustering linkage: single, complete, or average."
             default = "single"
         "--collapse"
-            help = "Collapse output strategy: hardest or soft."
+            help = "Collapse output strategy: hardest, soft, or igdiscover."
             default = "hardest"
         "--soft-cutoff"
             help = "For --collapse soft, keep clones with frequency at least this value."
@@ -130,15 +132,19 @@ function build_parser()
             default = 0.3
         "--tie-breaker"
             help = """
-Hardest tie-breaker when several clones tie at the same top frequency (default: most-common-vdj-nt).
-  most-common-vdj-nt — Igdiscover-style: sum count for each distinct vdj_nt across the whole lineage, pick the largest total, return the first row with that vdj_nt. That row need not sit on a maximum-frequency clone.
-  vdj-count — Only among rows already at maximum clone frequency: each clone gets a score = max over vdj_nt of (sum of count for that vdj_nt inside the clone); higher score wins, then lexicographically smaller cdr3.
-  cdr3-count, sequence-count, lexicographic, first, most-naive — See package docs / cli/README.md."""
+Hardest representative policy (default: most-common-vdj-nt).
+  most-common-vdj-nt — among maximum clone-frequency clones, pick the vdj_nt with largest summed abundance.
+  lineage-most-common-vdj-nt — IgDiscover-style: sum count for each vdj_nt across the whole lineage (not only top-frequency clones).
+  lowest-v-shm — least-mutated V (minimum V_SHM) among all lineage members.
+  vdj-count, cdr3-count, sequence-count, lexicographic, first, most-naive — see package docs."""
             default = "most-common-vdj-nt"
         "--tie-atol"
             help = "Absolute tolerance when comparing clone frequencies for Hardest ties."
             arg_type = Float64
             default = 0.0
+        "--abundance"
+            help = "How to interpret abundance: count (use the count column when present; missing=1) or rows (each row is 1)."
+            default = "count"
         "--quiet"
             help = "Suppress progress messages."
             action = :store_true
@@ -177,30 +183,44 @@ function selected_threshold(args)
 end
 
 function config_from_args(args)
-    linkage = Symbol(args["linkage"])
+    linkage = Symbol(String(args["linkage"]))
     linkage in LINKAGES || throw(ArgumentError("--linkage must be one of single, complete, or average"))
 
-    collapse_strategy = args["collapse"]
-    collapse_strategy in COLLAPSE_STRATEGIES || throw(ArgumentError("--collapse must be hardest or soft"))
+    collapse_strategy = String(args["collapse"])
+    collapse_strategy in COLLAPSE_STRATEGIES || throw(ArgumentError("--collapse must be hardest, soft, or igdiscover"))
 
-    tie_breaker = args["tie-breaker"]
+    tie_breaker = String(args["tie-breaker"])
     tie_breaker in TIE_BREAKERS || throw(ArgumentError("Unknown --tie-breaker: $tie_breaker"))
 
-    soft_cutoff = args["soft-cutoff"]
+    soft_cutoff = Float64(args["soft-cutoff"])
     0.0 <= soft_cutoff <= 1.0 || throw(ArgumentError("--soft-cutoff must be between 0.0 and 1.0"))
 
-    rename_count_to = args["keep-count"] ? nothing : Symbol(args["rename-count-to"])
+    rename_count_to = args["keep-count"] ? nothing : Symbol(String(args["rename-count-to"]))
 
     input = args["input"]
     (input isa AbstractString && !isempty(strip(input))) ||
         throw(ArgumentError("input path must be a non-empty string"))
 
+    filters_raw = get(args, "filter", String[])
+    filters = filters_raw isa Vector{String} ? filters_raw : String[String(x) for x in filters_raw]
+
+    proc = get(args, "processed-output", nothing)
+    processed_output = if isnothing(proc) || (proc isa AbstractString && isempty(strip(proc)))
+        nothing
+    else
+        String(proc)
+    end
+
+    abundance = Symbol(String(args["abundance"]))
+    (abundance === :count || abundance === :rows) ||
+        throw(ArgumentError("--abundance must be count or rows"))
+
     return CliConfig(
         String(strip(input)),
-        args["output"],
-        delimiter_char(args["delimiter"]),
+        String(args["output"]),
+        delimiter_char(String(args["delimiter"])),
         !args["no-default-filters"],
-        String.(args["filter"]),
+        filters,
         rename_count_to,
         args["min-d-region-length"],
         args["deduplicate"],
@@ -210,8 +230,9 @@ function config_from_args(args)
         collapse_strategy,
         soft_cutoff,
         tie_breaker,
-        args["tie-atol"],
-        args["processed-output"],
+        Float64(args["tie-atol"]),
+        abundance,
+        processed_output,
         args["quiet"],
     )
 end
@@ -302,15 +323,24 @@ end
 collapse_strategy(config::CliConfig) = collapse_strategy(Val(Symbol(config.collapse_strategy)), config)
 collapse_strategy(::Val{:hardest}, ::CliConfig) = Hardest()
 collapse_strategy(::Val{:soft}, config::CliConfig) = Soft(config.soft_cutoff)
+collapse_strategy(::Val{:igdiscover}, ::CliConfig) = IgDiscover()
 
 tie_breaker(config::CliConfig) = tie_breaker(Val(Symbol(replace(config.tie_breaker, "-" => "_"))))
 tie_breaker(::Val{:most_common_vdj_nt}) = ByMostCommonVdjNt()
+tie_breaker(::Val{:lineage_most_common_vdj_nt}) = ByLineageMostCommonVdjNt()
+tie_breaker(::Val{:lowest_v_shm}) = ByLowestVShm()
 tie_breaker(::Val{:vdj_count}) = ByVdjCount()
 tie_breaker(::Val{:cdr3_count}) = ByCdr3Count()
 tie_breaker(::Val{:sequence_count}) = BySequenceCount()
 tie_breaker(::Val{:lexicographic}) = ByLexicographic()
 tie_breaker(::Val{:first}) = ByFirst()
 tie_breaker(::Val{:most_naive}) = ByMostNaive()
+
+function selected_tie_breaker(config::CliConfig)
+    config.collapse_strategy == "igdiscover" &&
+        return ByLineageMostCommonVdjNt(; small_lineage_first_row=true)
+    return tie_breaker(config)
+end
 
 function write_table(path::AbstractString, df::AbstractDataFrame; delim::Char)
     path == "-" && return CSV.write(stdout, df; delim)
@@ -356,7 +386,8 @@ function run_pipeline_impl(config::CliConfig)
     log_progress(config, "After preprocessing: $(nrow(preprocessed)) rows")
 
     lineages = process_lineages(preprocessed, config.threshold; linkage = config.linkage)
-    log_progress(config, "Processed $(nrow(lineages)) rows into $(length(unique(lineages.lineage_id))) lineages")
+    nlin = nrow(lineages) == 0 ? 0 : length(unique(lineages.lineage_id))
+    log_progress(config, "Processed $(nrow(lineages)) rows into $(nlin) lineages")
 
     if !isnothing(config.processed_output)
         write_table(config.processed_output, lineages; delim = config.delimiter)
@@ -366,8 +397,9 @@ function run_pipeline_impl(config::CliConfig)
     collapsed = collapse_lineages(
         lineages,
         collapse_strategy(config);
-        tie_breaker = tie_breaker(config),
+        tie_breaker = selected_tie_breaker(config),
         tie_atol = config.tie_atol,
+        abundance = config.abundance,
     )
     log_progress(config, "Collapsed to $(nrow(collapsed)) rows")
 
@@ -394,36 +426,6 @@ function julia_main()::Cint
             return 1
         end
         rethrow()
-    end
-end
-
-@setup_workload begin
-    sample = DataFrame(
-        sequence_id = ["s1", "s2", "s3"],
-        sequence = ["ATCGATCGAT", "ATCGATCTAT", "GGGGATCGAT"],
-        v_call = ["IGHV1-1*01", "IGHV1-1*01", "IGHV2-1*01"],
-        j_call = ["IGHJ1*01", "IGHJ1*01", "IGHJ2*01"],
-        cdr3 = ["CGAT", "CGTT", "GGAT"],
-        v_sequence_start = [1, 1, 1],
-        v_sequence_end = [3, 3, 3],
-        j_sequence_start = [6, 6, 6],
-        j_sequence_end = [10, 10, 10],
-        stop_codon = [false, false, false],
-        V_errors = [0, 1, 2],
-        J_errors = [0, 0, 1],
-        count = [10, 4, 1],
-        VDJ_nt = ["VDJ1", "VDJ2", "VDJ3"],
-    )
-
-    @compile_workload begin
-        with_logger(NullLogger()) do
-            filtered = apply_filters(sample, DEFAULT_FILTER_SPECS; skip_missing_column = true)
-            rename_count_column!(filtered, :consensus_count)
-            preprocessed = preprocess_data(filtered)
-            normalize_vdj_column!(preprocessed)
-            lineages = process_lineages(preprocessed, 1)
-            collapse_lineages(lineages, Hardest(); tie_breaker = ByMostCommonVdjNt())
-        end
     end
 end
 

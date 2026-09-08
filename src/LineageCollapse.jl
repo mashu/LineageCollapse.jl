@@ -9,9 +9,10 @@ module LineageCollapse
     export hardest_tie_summary
     export AbstractDistanceMetric, ClusteringMethod, CollapseStrategy, AbstractTieBreaker, TieBreaker
     export HammingDistance, NormalizedHammingDistance, LevenshteinDistance, HierarchicalClustering
-    export Hardest, Soft
+    export Hardest, Soft, IgDiscover
     export ByVdjCount, ByCdr3Count, BySequenceCount, ByLexicographic, ByFirst, ByMostNaive, ByMostCommonVdjNt
-    export compute_distance, compute_pairwise_distance, perform_clustering
+    export ByLineageMostCommonVdjNt, ByLowestVShm
+    export compute_distance, compute_pairwise_distance, perform_clustering, cluster_single_linkage
 
     include("data_loading.jl")
     include("preprocessing.jl")

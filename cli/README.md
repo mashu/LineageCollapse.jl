@@ -72,7 +72,7 @@ With no extra flags, the tool:
 - Applies **`V_errors<=1`** and **`J_errors<=0`** only if those columns exist (IgBLAST often uses `V_error` / `J_error`; those are accepted as aliases for the filter names `V_errors` / `J_errors`).
 - Renames an existing **`count`** column to **`consensus_count`** so lineage totals are not computed from a non-additive abundance column.
 - Uses **`--cdr3-differences 1`** (absolute Hamming mismatches on CDR3 within each V/J/length group).
-- Uses **`--collapse hardest`** with **`--tie-breaker most-common-vdj-nt`** when resolving ties (requires `vdj_nt` after preprocessing; IgBLAST `VDJ_nt` is renamed automatically).
+- Uses **`--collapse hardest`** with **`--tie-breaker most-common-vdj-nt`** among maximum-frequency clones. Use `--collapse igdiscover` for IgDiscover `representative()` parity.
 
 ## Positional argument and I/O
 
@@ -130,7 +130,7 @@ lineage-collapse in.tsv.gz --rename-count-to abundance -o out.tsv
 
 | Option | Description |
 |--------|-------------|
-| `--min-d-region-length N` | Keep rows where `length(d_region) > N` after `preprocess_data` derives `d_region`. |
+| `--min-d-region-length N` | Keep rows where `length(d_region) >= N` after `preprocess_data` derives `d_region`. |
 | `--deduplicate` | `unique` by `sequence` (or by `sequence` + `barcode` when combined with `--use-barcode` and `barcode` exists). |
 | `--use-barcode` | Meaningful only with `--deduplicate`; uses barcode when the column is present. |
 
@@ -175,19 +175,15 @@ lineage-collapse in.tsv.gz --linkage complete -o out.tsv
 
 | Option | Description |
 |--------|-------------|
-| `--collapse` | `hardest` (default) or `soft`. |
+| `--collapse` | `hardest` (default), `soft`, or `igdiscover`. |
 | `--soft-cutoff` | For `soft`, minimum clone frequency in `[0, 1]` to keep a row (default `0.3`). |
-| `--tie-breaker` | For `hardest`, how to break ties among top-frequency clones: `most-common-vdj-nt`, `vdj-count`, `cdr3-count`, `sequence-count`, `lexicographic`, `first`, `most-naive`. |
+| `--tie-breaker` | For `hardest`, how to choose a representative: `most-common-vdj-nt`, `lineage-most-common-vdj-nt`, `lowest-v-shm`, `vdj-count`, `cdr3-count`, `sequence-count`, `lexicographic`, `first`, `most-naive`. |
+| `--abundance` | `count` (default; use the `count` column when present, missing=1) or `rows` (each row is 1). |
 
-#### `most-common-vdj-nt` vs `vdj-count`
+#### `most-common-vdj-nt` vs `lineage-most-common-vdj-nt`
 
-Both need `vdj_nt` (IgBLAST `VDJ_nt` is renamed automatically). They answer different questions:
-
-- **`most-common-vdj-nt`** (default) — *Which VDJ amplicon dominates this lineage?* For each distinct `vdj_nt`, add up `count` over **every row in the lineage**, take the `vdj_nt` with the largest total, then return the **first** row that carries it. This matches igdiscover-style behaviour. The chosen row **may not** be on a clone with maximum clone frequency, because lineage-wide totals can favour a different `vdj_nt`.
-
-- **`vdj-count`** — *Among clones tied for the top, which row should represent them?* Only rows whose clone already has **maximum** clone frequency are compared. Each clone gets a number: within that `(lineage, d_region, V, J, cdr3)` bucket, group by `vdj_nt`, sum `count` (or rows if there is no `count`), then take the **maximum** of those per-`vdj_nt` sums. The winning row is the candidate with the larger score, then lexicographically smaller `cdr3` if still tied.
-
-Use **`most-common-vdj-nt`** to stay close to igdiscover; use **`vdj-count`** when the representative must come from the top-frequency clone set and you want a deterministic score built only from that clone’s VDJ mixture.
+- **`most-common-vdj-nt`** (Hardest default) — among clones already at **maximum clone frequency**, pick the `vdj_nt` with the largest summed abundance.
+- **`lineage-most-common-vdj-nt` / `--collapse igdiscover`** — sum abundance over **every row in the lineage**. `--collapse igdiscover` also applies IgDiscover's `n <= 2` first-row shortcut.
 | `--tie-atol` | Absolute tolerance when comparing clone frequencies for `hardest` ties (default `0.0`). |
 
 `vdj-count` and `most-naive` need a `vdj_nt` column (IgBLAST provides `VDJ_nt`, renamed automatically). `most-naive` also uses `v_identity` and `j_identity` when present.
